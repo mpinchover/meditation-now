@@ -29,9 +29,3 @@ export const MOCK_INTERVAL_BELLS: BellSound[] = [
 ];
 
 export type BellCategory = "starting" | "opening" | "interval";
-
-export const BELL_CATEGORY_LABELS: Record<BellCategory, string> = {
-  starting: "Starting bell",
-  opening: "Opening bell",
-  interval: "Interval bells",
-};

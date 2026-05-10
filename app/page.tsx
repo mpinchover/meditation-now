@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BELL_CATEGORY_LABELS,
   MOCK_INTERVAL_BELLS,
   MOCK_OPENING_BELLS,
   MOCK_SOUNDTRACKS,
@@ -11,6 +10,25 @@ import {
 } from "@/lib/meditation-mocks";
 
 type ModalId = "duration" | "soundtrack" | "bells" | null;
+
+type BellsUiStep = "menu" | BellCategory;
+
+const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
+  { id: "starting", label: "Starting" },
+  { id: "opening", label: "Opening" },
+  { id: "interval", label: "Interval" },
+];
+
+function bellCatalogFor(cat: BellCategory) {
+  switch (cat) {
+    case "starting":
+      return MOCK_STARTING_BELLS;
+    case "opening":
+      return MOCK_OPENING_BELLS;
+    case "interval":
+      return MOCK_INTERVAL_BELLS;
+  }
+}
 
 const PREVIEW_ANIM_MS = 550;
 
@@ -49,19 +67,10 @@ export default function Home() {
 
   const [previewFlashKey, setPreviewFlashKey] = useState<string | null>(null);
 
-  const bellsForPendingCategory = useMemo(() => {
-    switch (pendingBellCategory) {
-      case "starting":
-        return MOCK_STARTING_BELLS;
-      case "opening":
-        return MOCK_OPENING_BELLS;
-      case "interval":
-        return MOCK_INTERVAL_BELLS;
-    }
-  }, [pendingBellCategory]);
+  const [bellsUiStep, setBellsUiStep] = useState<BellsUiStep>("menu");
 
-  const pendingBellSoundId = useMemo(() => {
-    switch (pendingBellCategory) {
+  function pendingBellIdFor(cat: BellCategory): string {
+    switch (cat) {
       case "starting":
         return pendingStartingBellId;
       case "opening":
@@ -69,15 +78,10 @@ export default function Home() {
       case "interval":
         return pendingIntervalBellId;
     }
-  }, [
-    pendingBellCategory,
-    pendingStartingBellId,
-    pendingOpeningBellId,
-    pendingIntervalBellId,
-  ]);
+  }
 
-  const setPendingBellSoundId = (id: string) => {
-    switch (pendingBellCategory) {
+  function setPendingBellIdFor(cat: BellCategory, id: string) {
+    switch (cat) {
       case "starting":
         setPendingStartingBellId(id);
         break;
@@ -88,7 +92,7 @@ export default function Home() {
         setPendingIntervalBellId(id);
         break;
     }
-  };
+  }
 
   const soundtrackTitle =
     MOCK_SOUNDTRACKS.find((s) => s.id === soundtrackId)?.title ?? "Soundtrack";
@@ -145,6 +149,7 @@ export default function Home() {
   }
 
   function openBellsModal() {
+    setBellsUiStep("menu");
     setPendingBellCategory(bellCategory);
     setPendingStartingBellId(startingBellId);
     setPendingOpeningBellId(openingBellId);
@@ -176,11 +181,16 @@ export default function Home() {
   useEffect(() => {
     if (!openModal) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpenModal(null);
+      if (e.key !== "Escape") return;
+      if (openModal === "bells" && bellsUiStep !== "menu") {
+        setBellsUiStep("menu");
+        return;
+      }
+      setOpenModal(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openModal]);
+  }, [openModal, bellsUiStep]);
 
   useEffect(() => {
     document.body.style.overflow = openModal ? "hidden" : "";
@@ -217,8 +227,10 @@ export default function Home() {
             label="Bells"
             value={
               bellCategory === "interval"
-                ? `${BELL_CATEGORY_LABELS.interval} · ${selectedBellName} · every ${intervalEveryMinutes}m`
-                : `${BELL_CATEGORY_LABELS[bellCategory]} · ${selectedBellName}`
+                ? `Interval · ${selectedBellName} · every ${intervalEveryMinutes}m`
+                : bellCategory === "opening"
+                  ? `Opening · ${selectedBellName}`
+                  : `Starting · ${selectedBellName}`
             }
             onOpen={openBellsModal}
           />
@@ -323,43 +335,60 @@ export default function Home() {
               </>
             )}
 
-            {openModal === "bells" && (
+            {openModal === "bells" && bellsUiStep === "menu" && (
               <>
                 <div className="flex min-h-0 flex-1 flex-col px-4 pb-3 pt-14">
-                  <h2 className="mb-3 shrink-0 text-center text-lg font-semibold text-zinc-50">
+                  <h2 className="mb-6 shrink-0 text-center text-lg font-semibold text-zinc-50">
                     Bells
                   </h2>
-                  <div className="mb-3 flex shrink-0 flex-col gap-2">
-                    {(["starting", "opening", "interval"] as const).map((cat) => (
+                  <div className="flex min-h-0 flex-1 flex-col justify-start gap-2">
+                    {BELL_TYPE_MENU.map((opt) => (
                       <button
-                        key={cat}
+                        key={opt.id}
                         type="button"
-                        className={`rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
-                          pendingBellCategory === cat
-                            ? "bg-emerald-900/50 text-emerald-100 ring-1 ring-emerald-600/60"
-                            : "bg-zinc-800/80 text-zinc-300 hover:bg-zinc-800"
-                        }`}
-                        onClick={() => setPendingBellCategory(cat)}
+                        className="rounded-xl bg-zinc-800/80 px-3 py-4 text-center text-sm font-medium text-zinc-100 transition hover:bg-zinc-800"
+                        onClick={() => {
+                          setPendingBellCategory(opt.id);
+                          setBellsUiStep(opt.id);
+                        }}
                       >
-                        {BELL_CATEGORY_LABELS[cat]}
+                        {opt.label}
                       </button>
                     ))}
                   </div>
+                </div>
+                <ModalSaveFooter onSave={saveBellsModal} />
+              </>
+            )}
 
-                  <p className="mb-2 shrink-0 text-xs text-zinc-500">
-                    {BELL_CATEGORY_LABELS[pendingBellCategory]} sounds
-                  </p>
+            {openModal === "bells" && bellsUiStep !== "menu" && (
+              <>
+                <button
+                  type="button"
+                  className="absolute left-3 top-3 z-10 flex h-10 items-center gap-0.5 rounded-full px-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-50"
+                  aria-label="Back"
+                  onClick={() => setBellsUiStep("menu")}
+                >
+                  <span className="text-lg leading-none">‹</span>
+                  <span>Back</span>
+                </button>
+
+                <div className="flex min-h-0 flex-1 flex-col px-4 pb-3 pt-14">
+                  <h2 className="mb-4 shrink-0 px-10 text-center text-lg font-semibold text-zinc-50">
+                    {BELL_TYPE_MENU.find((o) => o.id === bellsUiStep)?.label}
+                  </h2>
                   <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
-                    {bellsForPendingCategory.map((b) => {
-                      const selected = pendingBellSoundId === b.id;
-                      const flash = previewFlashKey === `bell:${b.id}`;
+                    {bellCatalogFor(bellsUiStep).map((b) => {
+                      const cat = bellsUiStep;
+                      const selected = pendingBellIdFor(cat) === b.id;
+                      const flash = previewFlashKey === `bell:${cat}:${b.id}`;
                       return (
                         <li key={b.id}>
                           <button
                             type="button"
                             onClick={() => {
-                              setPendingBellSoundId(b.id);
-                              triggerSoundPreview(`bell:${b.id}`);
+                              setPendingBellIdFor(cat, b.id);
+                              triggerSoundPreview(`bell:${cat}:${b.id}`);
                             }}
                             className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
                               selected
@@ -375,7 +404,7 @@ export default function Home() {
                   </ul>
                 </div>
 
-                {pendingBellCategory === "interval" && (
+                {bellsUiStep === "interval" && (
                   <div className="shrink-0 border-t border-zinc-800 px-4 py-3">
                     <label
                       htmlFor="interval-slider"
@@ -403,7 +432,7 @@ export default function Home() {
                   </div>
                 )}
 
-                <ModalSaveFooter onSave={saveBellsModal} />
+                <ModalSelectFooter onSelect={() => setBellsUiStep("menu")} />
               </>
             )}
           </div>
@@ -415,13 +444,27 @@ export default function Home() {
 
 function ModalSaveFooter(props: { onSave: () => void }) {
   return (
-    <div className="shrink-0 border-t border-zinc-800 bg-zinc-950/80 px-4 py-3 backdrop-blur-sm">
+    <div className="shrink-0 px-4 py-3 backdrop-blur-sm">
       <button
         type="button"
         onClick={props.onSave}
         className="w-full rounded-xl bg-emerald-600 py-3 text-center text-sm font-semibold text-white transition hover:bg-emerald-500 active:scale-[0.99]"
       >
         Save
+      </button>
+    </div>
+  );
+}
+
+function ModalSelectFooter(props: { onSelect: () => void }) {
+  return (
+    <div className="shrink-0 px-4 py-3 backdrop-blur-sm">
+      <button
+        type="button"
+        onClick={props.onSelect}
+        className="w-full rounded-xl bg-emerald-600 py-3 text-center text-sm font-semibold text-white transition hover:bg-emerald-500 active:scale-[0.99]"
+      >
+        Select
       </button>
     </div>
   );
@@ -452,7 +495,7 @@ function PickerColumn(props: {
   onChange: (v: number) => void;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-xl bg-zinc-800/50">
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl ">
       <div className="shrink-0 px-2 py-2 text-center text-xs font-medium uppercase tracking-wide text-zinc-500">
         {props.label}
       </div>
