@@ -67,8 +67,7 @@ function smoothstep01(t: number): number {
   return x * x * (3 - 2 * x);
 }
 
-function applySoundscapeLoopFade(audio: HTMLAudioElement, sessionComplete: () => boolean) {
-  if (sessionComplete()) return;
+function applySoundscapeLoopFade(audio: HTMLAudioElement) {
   const d = audio.duration;
   if (!Number.isFinite(d) || d <= 0) {
     audio.volume = SOUNDSCAPE_BASE_VOLUME;
@@ -112,8 +111,6 @@ function MeditationSession(props: {
       soundscapeRaf = 0;
     };
 
-    const sessionDone = () => completedRef.current;
-
     if (config.soundtrackId) {
       const url = MOCK_SOUNDSCAPES.find((s) => s.id === config.soundtrackId)?.media_url;
       if (url) {
@@ -122,11 +119,11 @@ function MeditationSession(props: {
         audio.volume = SOUNDSCAPE_BASE_VOLUME;
 
         const volLoop = () => {
-          if (!soundscapeRef.current || audio.paused || sessionDone()) {
+          if (!soundscapeRef.current || audio.paused) {
             cancelVolLoop();
             return;
           }
-          applySoundscapeLoopFade(audio, sessionDone);
+          applySoundscapeLoopFade(audio);
           soundscapeRaf = requestAnimationFrame(volLoop);
         };
 
@@ -137,7 +134,6 @@ function MeditationSession(props: {
 
         const onEnded = () => {
           cancelVolLoop();
-          if (sessionDone()) return;
           audio.currentTime = 0;
           audio.volume = SOUNDSCAPE_BASE_VOLUME;
           void audio.play().catch(() => {});
@@ -200,11 +196,6 @@ function MeditationSession(props: {
       if (remainingSec <= 0 && !completedRef.current) {
         completedRef.current = true;
         setFinished(true);
-        const bg = soundscapeRef.current;
-        if (bg) {
-          bg.pause();
-          bg.currentTime = 0;
-        }
         const endUrl = bellMediaUrl(config.endingBellId);
         if (endUrl) playBellOnce(endUrl);
       }
@@ -399,9 +390,27 @@ export default function Home() {
     }
   }, [bellsUiStep, openModal, stopMediaPreview]);
 
+  function clampPendingDuration(nextHours: number, nextMinutes: number) {
+    if (nextHours === 0 && nextMinutes === 0) return { hours: 0, minutes: 1 };
+    return { hours: nextHours, minutes: nextMinutes };
+  }
+
+  function setPendingHoursClamped(nextHours: number) {
+    const next = clampPendingDuration(nextHours, pendingMinutes);
+    setPendingHours(next.hours);
+    setPendingMinutes(next.minutes);
+  }
+
+  function setPendingMinutesClamped(nextMinutes: number) {
+    const next = clampPendingDuration(pendingHours, nextMinutes);
+    setPendingHours(next.hours);
+    setPendingMinutes(next.minutes);
+  }
+
   function openDurationModal() {
-    setPendingHours(hours);
-    setPendingMinutes(minutes);
+    const seeded = clampPendingDuration(hours, minutes);
+    setPendingHours(seeded.hours);
+    setPendingMinutes(seeded.minutes);
     setOpenModal("duration");
   }
 
@@ -423,8 +432,9 @@ export default function Home() {
   }
 
   function saveDurationModal() {
-    setHours(pendingHours);
-    setMinutes(pendingMinutes);
+    const saved = clampPendingDuration(pendingHours, pendingMinutes);
+    setHours(saved.hours);
+    setMinutes(saved.minutes);
     setOpenModal(null);
   }
 
@@ -464,7 +474,7 @@ export default function Home() {
   }, [openModal]);
 
   const hourOptions = Array.from({ length: 12 }, (_, i) => i);
-  const minuteOptions = Array.from({ length: 12 }, (_, i) => i * 5);
+  const minuteOptions = Array.from({ length: 60 }, (_, i) => i );
 
   function beginSession() {
     stopMediaPreview();
@@ -563,14 +573,14 @@ export default function Home() {
                       value={pendingHours}
                       options={hourOptions}
                       format={(v) => String(v)}
-                      onChange={setPendingHours}
+                      onChange={setPendingHoursClamped}
                     />
                     <PickerColumn
                       label="Minutes"
                       value={pendingMinutes}
                       options={minuteOptions}
                       format={(v) => (v === 0 ? "0" : String(v).padStart(2, "0"))}
-                      onChange={setPendingMinutes}
+                      onChange={setPendingMinutesClamped}
                     />
                   </div>
                 </div>
