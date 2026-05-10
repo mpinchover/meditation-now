@@ -1,11 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MOCK_INTERVAL_BELLS,
-  MOCK_OPENING_BELLS,
-  MOCK_SOUNDTRACKS,
-  MOCK_STARTING_BELLS,
+  MOCK_BELL_SOUNDS,
+  MOCK_SOUNDSCAPES,
   type BellCategory,
 } from "@/lib/meditation-mocks";
 
@@ -19,18 +17,9 @@ const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
   { id: "interval", label: "Interval" },
 ];
 
-function bellCatalogFor(cat: BellCategory) {
-  switch (cat) {
-    case "starting":
-      return MOCK_STARTING_BELLS;
-    case "opening":
-      return MOCK_OPENING_BELLS;
-    case "interval":
-      return MOCK_INTERVAL_BELLS;
-  }
+function bellCatalogFor(_cat: BellCategory) {
+  return MOCK_BELL_SOUNDS;
 }
-
-const PREVIEW_ANIM_MS = 550;
 
 function formatDuration(hours: number, minutes: number): string {
   const parts: string[] = [];
@@ -56,33 +45,32 @@ function bellsMenuSummary(
 ): string {
   switch (cat) {
     case "starting":
-      return bellNameOrNone(startingId, MOCK_STARTING_BELLS);
+      return bellNameOrNone(startingId, MOCK_BELL_SOUNDS);
     case "opening":
-      return bellNameOrNone(openingId, MOCK_OPENING_BELLS);
+      return bellNameOrNone(openingId, MOCK_BELL_SOUNDS);
     case "interval":
       if (intervalId === null) return "None";
-      return `${bellNameOrNone(intervalId, MOCK_INTERVAL_BELLS)} · every ${intervalMinutes}m`;
+      return `${bellNameOrNone(intervalId, MOCK_BELL_SOUNDS)} · every ${intervalMinutes}m`;
   }
 }
 
 export default function Home() {
   const [openModal, setOpenModal] = useState<ModalId>(null);
-  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [hours, setHours] = useState(0);
   const [minutes, setMinutes] = useState(15);
 
   const [soundtrackId, setSoundtrackId] = useState<string | null>(
-    MOCK_SOUNDTRACKS[0]?.id ?? null,
+    MOCK_SOUNDSCAPES[0]?.id ?? null,
   );
 
   const [bellCategory, setBellCategory] = useState<BellCategory>("starting");
   const [startingBellId, setStartingBellId] = useState<string | null>(null);
   const [openingBellId, setOpeningBellId] = useState<string | null>(
-    MOCK_OPENING_BELLS[0]?.id ?? null,
+    MOCK_BELL_SOUNDS[0]?.id ?? null,
   );
   const [intervalBellId, setIntervalBellId] = useState<string | null>(
-    MOCK_INTERVAL_BELLS[0]?.id ?? null,
+    MOCK_BELL_SOUNDS[0]?.id ?? null,
   );
   const [intervalEveryMinutes, setIntervalEveryMinutes] = useState(5);
 
@@ -105,7 +93,7 @@ export default function Home() {
   const [pendingIntervalEveryMinutes, setPendingIntervalEveryMinutes] =
     useState(intervalEveryMinutes);
 
-  const [previewFlashKey, setPreviewFlashKey] = useState<string | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const [bellsUiStep, setBellsUiStep] = useState<BellsUiStep>("menu");
 
@@ -137,27 +125,46 @@ export default function Home() {
   const soundtrackTitle =
     soundtrackId === null
       ? "None"
-      : MOCK_SOUNDTRACKS.find((s) => s.id === soundtrackId)?.title ?? "None";
+      : MOCK_SOUNDSCAPES.find((s) => s.id === soundtrackId)?.name ?? "None";
 
   const startingBellSummary =
     startingBellId === null
       ? "None"
-      : MOCK_STARTING_BELLS.find((b) => b.id === startingBellId)?.name ?? "None";
+      : MOCK_BELL_SOUNDS.find((b) => b.id === startingBellId)?.name ?? "None";
 
-  useEffect(() => {
-    return () => {
-      if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-    };
+  const stopMediaPreview = useCallback(() => {
+    const a = previewAudioRef.current;
+    if (!a) return;
+    a.pause();
+    a.removeAttribute("src");
+    a.load();
+    previewAudioRef.current = null;
   }, []);
 
-  function triggerSoundPreview(key: string) {
-    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
-    setPreviewFlashKey(key);
-    previewTimerRef.current = setTimeout(() => {
-      setPreviewFlashKey(null);
-      previewTimerRef.current = null;
-    }, PREVIEW_ANIM_MS);
-  }
+  const startMediaPreview = useCallback(
+    (url: string, loop: boolean) => {
+      stopMediaPreview();
+      const audio = new Audio(url);
+      audio.loop = loop;
+      audio.volume = 0.85;
+      previewAudioRef.current = audio;
+      void audio.play().catch(() => {});
+    },
+    [stopMediaPreview],
+  );
+
+  useEffect(() => {
+    return () => stopMediaPreview();
+  }, [stopMediaPreview]);
+
+  useEffect(() => {
+    if (!openModal) stopMediaPreview();
+  }, [openModal, stopMediaPreview]);
+
+  useEffect(() => {
+    if (openModal !== "bells") return;
+    if (bellsUiStep === "menu") stopMediaPreview();
+  }, [bellsUiStep, openModal, stopMediaPreview]);
 
   function openDurationModal() {
     setPendingHours(hours);
@@ -241,7 +248,7 @@ export default function Home() {
             onOpen={openDurationModal}
           />
           <FieldRow
-            label="Soundtrack"
+            label="Soundscape"
             value={soundtrackTitle}
             onOpen={openSoundtrackModal}
           />
@@ -317,42 +324,47 @@ export default function Home() {
               <>
                 <div className="flex min-h-0 flex-1 flex-col px-4 pb-3 pt-14">
                   <h2 className="mb-3 shrink-0 text-center text-lg font-semibold text-zinc-50">
-                    Soundtrack
+                    Soundscape
                   </h2>
                   <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
                     <li key="soundtrack-none">
                       <button
                         type="button"
-                        onClick={() => setPendingSoundtrackId(null)}
-                        className={`flex w-full flex-col rounded-xl px-3 py-3 text-left transition ${
+                        onClick={() => {
+                          stopMediaPreview();
+                          setPendingSoundtrackId(null);
+                        }}
+                        className={`flex w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
                           pendingSoundtrackId === null
-                            ? "bg-emerald-900/50 ring-1 ring-emerald-600/60"
-                            : "bg-zinc-800/80 hover:bg-zinc-800"
+                            ? "font-medium text-zinc-100"
+                            : "text-zinc-500"
                         }`}
                       >
-                        <span className="font-medium text-zinc-100">None</span>
+                        None
                       </button>
                     </li>
-                    {MOCK_SOUNDTRACKS.map((s) => {
+                    {MOCK_SOUNDSCAPES.map((s) => {
                       const selected = pendingSoundtrackId === s.id;
-                      const flash = previewFlashKey === `soundtrack:${s.id}`;
                       return (
                         <li key={s.id}>
                           <button
                             type="button"
                             onClick={() => {
                               setPendingSoundtrackId(s.id);
-                              triggerSoundPreview(`soundtrack:${s.id}`);
+                              startMediaPreview(s.media_url, true);
                             }}
-                            className={`flex w-full flex-col rounded-xl px-3 py-3 text-left transition ${
+                            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
                               selected
-                                ? "bg-emerald-900/50 ring-1 ring-emerald-600/60"
-                                : "bg-zinc-800/80 hover:bg-zinc-800"
-                            } ${flash ? "selection-preview-flash" : ""}`}
+                                ? "font-medium text-zinc-50"
+                                : "text-zinc-500"
+                            }`}
                           >
-                            <span className="font-medium text-zinc-100">{s.title}</span>
-                            {s.durationHint && (
-                              <span className="text-xs text-zinc-500">{s.durationHint}</span>
+                            <span className="min-w-0 flex-1">{s.name}</span>
+                            {selected && (
+                              <span
+                                className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
+                                aria-hidden
+                              />
                             )}
                           </button>
                         </li>
@@ -415,11 +427,14 @@ export default function Home() {
                       <li key="starting-none">
                         <button
                           type="button"
-                          onClick={() => setPendingStartingBellId(null)}
-                          className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
+                          onClick={() => {
+                            stopMediaPreview();
+                            setPendingStartingBellId(null);
+                          }}
+                          className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
                             pendingStartingBellId === null
-                              ? "bg-emerald-900/50 text-emerald-100 ring-1 ring-emerald-600/60"
-                              : "bg-zinc-800/80 text-zinc-200 hover:bg-zinc-800"
+                              ? "font-medium text-zinc-100"
+                              : "text-zinc-500"
                           }`}
                         >
                           None
@@ -430,11 +445,14 @@ export default function Home() {
                       <li key="opening-none">
                         <button
                           type="button"
-                          onClick={() => setPendingOpeningBellId(null)}
-                          className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
+                          onClick={() => {
+                            stopMediaPreview();
+                            setPendingOpeningBellId(null);
+                          }}
+                          className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
                             pendingOpeningBellId === null
-                              ? "bg-emerald-900/50 text-emerald-100 ring-1 ring-emerald-600/60"
-                              : "bg-zinc-800/80 text-zinc-200 hover:bg-zinc-800"
+                              ? "font-medium text-zinc-100"
+                              : "text-zinc-500"
                           }`}
                         >
                           None
@@ -445,11 +463,14 @@ export default function Home() {
                       <li key="interval-none">
                         <button
                           type="button"
-                          onClick={() => setPendingIntervalBellId(null)}
-                          className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
+                          onClick={() => {
+                            stopMediaPreview();
+                            setPendingIntervalBellId(null);
+                          }}
+                          className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
                             pendingIntervalBellId === null
-                              ? "bg-emerald-900/50 text-emerald-100 ring-1 ring-emerald-600/60"
-                              : "bg-zinc-800/80 text-zinc-200 hover:bg-zinc-800"
+                              ? "font-medium text-zinc-100"
+                              : "text-zinc-500"
                           }`}
                         >
                           None
@@ -459,22 +480,27 @@ export default function Home() {
                     {bellCatalogFor(bellsUiStep).map((b) => {
                       const cat = bellsUiStep;
                       const selected = pendingBellIdFor(cat) === b.id;
-                      const flash = previewFlashKey === `bell:${cat}:${b.id}`;
                       return (
                         <li key={b.id}>
                           <button
                             type="button"
                             onClick={() => {
                               setPendingBellIdFor(cat, b.id);
-                              triggerSoundPreview(`bell:${cat}:${b.id}`);
+                              startMediaPreview(b.media_url, false);
                             }}
-                            className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
+                            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
                               selected
-                                ? "bg-emerald-900/50 text-emerald-100 ring-1 ring-emerald-600/60"
-                                : "bg-zinc-800/80 text-zinc-200 hover:bg-zinc-800"
-                            } ${flash ? "selection-preview-flash" : ""}`}
+                                ? "font-medium text-zinc-50"
+                                : "text-zinc-500"
+                            }`}
                           >
-                            {b.name}
+                            <span className="min-w-0 flex-1 truncate">{b.name}</span>
+                            {selected && (
+                              <span
+                                className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
+                                aria-hidden
+                              />
+                            )}
                           </button>
                         </li>
                       );
