@@ -5,11 +5,14 @@ import {
   MOCK_BELL_SOUNDS,
   MOCK_SOUNDSCAPES,
   type BellCategory,
+  type CatalogSoundscape,
 } from "@/lib/meditation-mocks";
 
 type ModalId = "duration" | "soundtrack" | "bells" | null;
 
 type BellsUiStep = "menu" | BellCategory;
+
+type SoundscapeListTab = "library" | "my_sounds";
 
 const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
   { id: "starting", label: "Starting" },
@@ -67,6 +70,32 @@ function smoothstep01(t: number): number {
   return x * x * (3 - 2 * x);
 }
 
+function PauseGlyph(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={props.className}
+      aria-hidden
+    >
+      <path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z" />
+    </svg>
+  );
+}
+
+function PlayGlyph(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={props.className}
+      aria-hidden
+    >
+      <path d="M8 5v14l11-7-11-7z" />
+    </svg>
+  );
+}
+
 function applySoundscapeLoopFade(audio: HTMLAudioElement) {
   const d = audio.duration;
   if (!Number.isFinite(d) || d <= 0) {
@@ -88,12 +117,17 @@ function MeditationSession(props: {
 }) {
   const { config } = props;
   const [remaining, setRemaining] = useState(config.totalSeconds);
-  const [finished, setFinished] = useState(false);
+  const [paused, setPaused] = useState(false);
   const endAtRef = useRef(0);
   const startedAtRef = useRef(0);
+  const pauseWallStartedAtRef = useRef<number | null>(null);
+  const frozenRemainingSecRef = useRef(config.totalSeconds);
   const lastIntervalTierRef = useRef(0);
   const completedRef = useRef(false);
+  const pausedRef = useRef(false);
   const soundscapeRef = useRef<HTMLAudioElement | null>(null);
+  const onExitRef = useRef(props.onExit);
+  onExitRef.current = props.onExit;
 
   useEffect(() => {
     const now = Date.now();
@@ -177,9 +211,12 @@ function MeditationSession(props: {
 
     const tick = () => {
       if (completedRef.current) return;
+      if (pausedRef.current) return;
+
       const now = Date.now();
       const remainingSec = Math.max(0, Math.ceil((endAtRef.current - now) / 1000));
       setRemaining(remainingSec);
+      frozenRemainingSecRef.current = remainingSec;
 
       if (remainingSec > 0) {
         const elapsedSec = Math.floor((now - startedAtRef.current) / 1000);
@@ -195,9 +232,12 @@ function MeditationSession(props: {
 
       if (remainingSec <= 0 && !completedRef.current) {
         completedRef.current = true;
-        setFinished(true);
+        pausedRef.current = false;
+        setPaused(false);
+        soundscapeRef.current?.pause();
         const endUrl = bellMediaUrl(config.endingBellId);
         if (endUrl) playBellOnce(endUrl);
+        onExitRef.current();
       }
     };
 
@@ -206,36 +246,90 @@ function MeditationSession(props: {
     return () => window.clearInterval(id);
   }, [config]);
 
+  function togglePause() {
+    if (completedRef.current) return;
+
+    if (!pausedRef.current) {
+      const rem = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
+      frozenRemainingSecRef.current = rem;
+      setRemaining(rem);
+      pausedRef.current = true;
+      setPaused(true);
+      pauseWallStartedAtRef.current = Date.now();
+      soundscapeRef.current?.pause();
+      return;
+    }
+
+    const pauseStart = pauseWallStartedAtRef.current;
+    if (pauseStart !== null) {
+      startedAtRef.current += Date.now() - pauseStart;
+      pauseWallStartedAtRef.current = null;
+    }
+    const rem = frozenRemainingSecRef.current;
+    endAtRef.current = Date.now() + rem * 1000;
+    pausedRef.current = false;
+    setPaused(false);
+    void soundscapeRef.current?.play().catch(() => {});
+  }
+
+  function finishSessionEarly() {
+    if (completedRef.current) return;
+    completedRef.current = true;
+    pausedRef.current = true;
+    soundscapeRef.current?.pause();
+    onExitRef.current();
+  }
+
+  /** Same gap between countdown ↔ play/pause and play/pause ↔ Finish when paused */
+  const sessionStackGapClass = "gap-[min(10dvh,3.75rem)]";
+
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-10 px-5 py-10">
-      {!finished ? (
-        <>
-          <div className="space-y-2 text-center">
-            <p className="text-sm font-medium text-zinc-400">Session in progress</p>
-            <p
-              className="text-6xl font-light tabular-nums tracking-tight text-zinc-50"
-              aria-live="polite"
-            >
-              {formatCountdown(remaining)}
-            </p>
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="space-y-3 text-center">
-            <p className="text-lg font-semibold text-zinc-100">Finished</p>
-            <p className="text-sm text-zinc-400">Take a gentle breath whenever you&apos;re ready.</p>
-          </div>
+    <div className="mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col">
+      <div
+        className={`flex min-h-0 flex-1 flex-col items-center justify-end px-5 pb-[max(2.5rem,env(safe-area-inset-bottom,0px))] pt-4 ${sessionStackGapClass}`}
+      >
+        <div className="w-full shrink-0 space-y-2 text-center">
+        
+          <p
+            className="text-6xl font-light tabular-nums tracking-tight text-zinc-50"
+            aria-live="polite"
+          >
+            {formatCountdown(remaining)}
+          </p>
+        </div>
+
+        {!paused ? (
           <button
             type="button"
-            onClick={props.onExit}
-            className="w-full rounded-2xl bg-emerald-600 py-4 text-center text-base font-semibold text-white shadow-lg shadow-emerald-950/40 transition hover:bg-emerald-500 active:scale-[0.99]"
+            onClick={togglePause}
+            aria-label="Pause session"
+            className="flex size-28 shrink-0 items-center justify-center rounded-md text-zinc-200 transition duration-300 ease-out hover:scale-[1.04] hover:text-zinc-50 active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500 motion-reduce:transition-none motion-reduce:hover:scale-100"
           >
-            Finish
+            <PauseGlyph className="size-14" />
           </button>
-        </>
-      )}
-    </main>
+        ) : (
+          <button
+            type="button"
+            onClick={togglePause}
+            aria-label="Resume session"
+            className="flex size-28 shrink-0 items-center justify-center rounded-md text-zinc-200 transition duration-300 ease-out hover:scale-[1.04] hover:text-zinc-50 active:scale-[0.96] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-500 motion-reduce:transition-none motion-reduce:hover:scale-100"
+          >
+            <PlayGlyph className="size-16 pl-1" />
+          </button>
+        )}
+
+        {/* Always reserve space so pausing/unpausing doesn’t shift timer + play controls */}
+        <button
+          type="button"
+          onClick={finishSessionEarly}
+          aria-hidden={!paused}
+          tabIndex={paused ? 0 : -1}
+          className={`w-full shrink-0 self-stretch rounded-2xl border border-zinc-600 bg-zinc-800/80 px-6 py-3 text-center text-sm font-semibold text-zinc-100 shadow-lg shadow-black/20 backdrop-blur-sm transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99] ${paused ? "" : "pointer-events-none invisible"}`}
+        >
+          Finish
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -308,6 +402,9 @@ export default function Home() {
 
   /** Row id whose preview/dot was activated by user tap this session (not initial selection). */
   const [soundscapePulseId, setSoundscapePulseId] = useState<string | null>(null);
+  const [soundscapeListTab, setSoundscapeListTab] =
+    useState<SoundscapeListTab>("library");
+  const [mySoundscapes] = useState<CatalogSoundscape[]>([]);
   const [bellPulseId, setBellPulseId] = useState<string | null>(null);
 
   const [bellsUiStep, setBellsUiStep] = useState<BellsUiStep>("menu");
@@ -417,6 +514,7 @@ export default function Home() {
   function openSoundtrackModal() {
     setPendingSoundtrackId(soundtrackId);
     setSoundscapePulseId(null);
+    setSoundscapeListTab("library");
     setOpenModal("soundtrack");
   }
 
@@ -501,10 +599,10 @@ export default function Home() {
       ) : (
         <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-5 py-10">
           <header className="shrink-0 space-y-1 text-center">
-            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
+            {/* <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
               Meditate
-            </h1>
-            <p className="text-sm text-zinc-400">Set your session, then begin.</p>
+            </h1> */}
+         
           </header>
 
           <section className="flex shrink-0 flex-col gap-3">
@@ -594,53 +692,131 @@ export default function Home() {
                   <h2 className="mb-3 shrink-0 text-center text-lg font-semibold text-zinc-50">
                     Soundscape
                   </h2>
-                  <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
-                    <li key="soundtrack-none">
+                  <div className="mb-3 flex shrink-0 justify-start gap-2">
+                    {(
+                      [
+                        { id: "library" as const, label: "Library" },
+                        { id: "my_sounds" as const, label: "My sounds" },
+                      ] as const
+                    ).map(({ id, label }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => {
+                          setSoundscapeListTab(id);
+                          if (id === "my_sounds") {
+                            stopMediaPreview();
+                            setSoundscapePulseId(null);
+                          }
+                        }}
+                        className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                          soundscapeListTab === id
+                            ? "bg-white/[0.08] text-zinc-50 ring-1 ring-zinc-700"
+                            : "text-zinc-500 hover:bg-white/[0.035] hover:text-zinc-300"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {soundscapeListTab === "library" ? (
+                    <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
+                      <li key="soundtrack-none">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            stopMediaPreview();
+                            setSoundscapePulseId(null);
+                            setPendingSoundtrackId(null);
+                          }}
+                          className={`flex w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
+                            pendingSoundtrackId === null
+                              ? "font-medium text-zinc-100"
+                              : "text-zinc-500"
+                          }`}
+                        >
+                          None
+                        </button>
+                      </li>
+                      {MOCK_SOUNDSCAPES.map((s) => {
+                        const selected = pendingSoundtrackId === s.id;
+                        return (
+                          <li key={s.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPendingSoundtrackId(s.id);
+                                setSoundscapePulseId(s.id);
+                                startMediaPreview(s.media_url, true);
+                              }}
+                              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
+                                selected
+                                  ? "font-medium text-zinc-50"
+                                  : "text-zinc-500"
+                              }`}
+                            >
+                              <span className="min-w-0 flex-1">{s.name}</span>
+                              {soundscapePulseId === s.id && (
+                                <span
+                                  className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
+                                  aria-hidden
+                                />
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : mySoundscapes.length === 0 ? (
+                    <div className="flex min-h-0 flex-1 flex-col justify-start">
                       <button
                         type="button"
                         onClick={() => {
-                          stopMediaPreview();
-                          setSoundscapePulseId(null);
-                          setPendingSoundtrackId(null);
+                          /* TODO: upload / picker */
                         }}
-                        className={`flex w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
-                          pendingSoundtrackId === null
-                            ? "font-medium text-zinc-100"
-                            : "text-zinc-500"
-                        }`}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-zinc-400 transition hover:bg-white/[0.045] hover:text-zinc-200 active:bg-white/[0.06]"
                       >
-                        None
+                        <span
+                          className="inline-flex size-6 shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-900/80 text-base font-normal leading-none text-zinc-500 tabular-nums"
+                          aria-hidden
+                        >
+                          +
+                        </span>
+                        Add a sound
                       </button>
-                    </li>
-                    {MOCK_SOUNDSCAPES.map((s) => {
-                      const selected = pendingSoundtrackId === s.id;
-                      return (
-                        <li key={s.id}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPendingSoundtrackId(s.id);
-                              setSoundscapePulseId(s.id);
-                              startMediaPreview(s.media_url, true);
-                            }}
-                            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
-                              selected
-                                ? "font-medium text-zinc-50"
-                                : "text-zinc-500"
-                            }`}
-                          >
-                            <span className="min-w-0 flex-1">{s.name}</span>
-                            {soundscapePulseId === s.id && (
-                              <span
-                                className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
-                                aria-hidden
-                              />
-                            )}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                    </div>
+                  ) : (
+                    <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
+                      {mySoundscapes.map((s) => {
+                        const selected = pendingSoundtrackId === s.id;
+                        return (
+                          <li key={s.id}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPendingSoundtrackId(s.id);
+                                setSoundscapePulseId(s.id);
+                                startMediaPreview(s.media_url, true);
+                              }}
+                              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
+                                selected
+                                  ? "font-medium text-zinc-50"
+                                  : "text-zinc-500"
+                              }`}
+                            >
+                              <span className="min-w-0 flex-1">{s.name}</span>
+                              {soundscapePulseId === s.id && (
+                                <span
+                                  className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
+                                  aria-hidden
+                                />
+                              )}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </div>
                 <ModalSaveFooter onSave={saveSoundtrackModal} />
               </>
