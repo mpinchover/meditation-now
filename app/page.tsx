@@ -796,7 +796,7 @@ export default function Home() {
             <button
               type="button"
               onClick={beginSession}
-              className="w-full rounded-2xl bg-emerald-600 py-4 text-center text-base font-semibold text-white shadow-lg shadow-emerald-950/40 transition hover:bg-emerald-500 active:scale-[0.99]"
+              className="w-full rounded-2xl border border-zinc-600 bg-zinc-800 py-4 text-center text-base font-semibold text-zinc-50 shadow-lg shadow-black/45 transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99]"
             >
               Begin
             </button>
@@ -1257,9 +1257,9 @@ export default function Home() {
                         onChange={(e) =>
                           setPendingIntervalEveryMinutes(Number(e.target.value))
                         }
-                        className="h-2 flex-1 cursor-pointer accent-emerald-500"
+                        className="h-2 flex-1 cursor-pointer accent-zinc-500"
                       />
-                      <span className="w-8 tabular-nums text-sm font-semibold text-emerald-400">
+                      <span className="w-8 tabular-nums text-sm font-semibold text-zinc-300">
                         {pendingIntervalEveryMinutes}
                       </span>
                     </div>
@@ -1290,7 +1290,7 @@ function ModalSaveFooter(props: {
         className={`w-full rounded-xl py-3 text-center text-sm font-semibold transition active:scale-[0.99] ${
           disabled
             ? "cursor-not-allowed bg-zinc-700 text-zinc-500"
-            : "bg-emerald-600 text-white hover:bg-emerald-500"
+            : "border border-zinc-600 bg-zinc-800 text-zinc-50 hover:border-zinc-500 hover:bg-zinc-700"
         }`}
       >
         Save
@@ -1305,7 +1305,7 @@ function ModalSelectFooter(props: { onSelect: () => void }) {
       <button
         type="button"
         onClick={props.onSelect}
-        className="w-full rounded-xl bg-emerald-600 py-3 text-center text-sm font-semibold text-white transition hover:bg-emerald-500 active:scale-[0.99]"
+        className="w-full rounded-xl border border-zinc-600 bg-zinc-800 py-3 text-center text-sm font-semibold text-zinc-50 transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99]"
       >
         Select
       </button>
@@ -1351,10 +1351,10 @@ function PickerColumn(props: {
                 e.stopPropagation();
                 props.onChange(opt);
               }}
-              className={`mb-1 w-full rounded-lg py-2.5 text-center text-sm font-medium transition ${
+              className={`mb-1 w-full rounded-lg border py-2.5 text-center text-sm font-medium transition ${
                 props.value === opt
-                  ? "bg-emerald-700 text-white"
-                  : "text-zinc-300 hover:bg-zinc-800"
+                  ? "border-zinc-500 bg-zinc-700 text-zinc-50"
+                  : "border-transparent text-zinc-300 hover:bg-zinc-800"
               }`}
             >
               {props.format(opt)}
