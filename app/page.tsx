@@ -95,6 +95,10 @@ export default function Home() {
 
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  /** Row id whose preview/dot was activated by user tap this session (not initial selection). */
+  const [soundscapePulseId, setSoundscapePulseId] = useState<string | null>(null);
+  const [bellPulseId, setBellPulseId] = useState<string | null>(null);
+
   const [bellsUiStep, setBellsUiStep] = useState<BellsUiStep>("menu");
 
   function pendingBellIdFor(cat: BellCategory): string | null {
@@ -158,12 +162,19 @@ export default function Home() {
   }, [stopMediaPreview]);
 
   useEffect(() => {
-    if (!openModal) stopMediaPreview();
+    if (!openModal) {
+      stopMediaPreview();
+      setSoundscapePulseId(null);
+      setBellPulseId(null);
+    }
   }, [openModal, stopMediaPreview]);
 
   useEffect(() => {
     if (openModal !== "bells") return;
-    if (bellsUiStep === "menu") stopMediaPreview();
+    if (bellsUiStep === "menu") {
+      stopMediaPreview();
+      setBellPulseId(null);
+    }
   }, [bellsUiStep, openModal, stopMediaPreview]);
 
   function openDurationModal() {
@@ -174,6 +185,7 @@ export default function Home() {
 
   function openSoundtrackModal() {
     setPendingSoundtrackId(soundtrackId);
+    setSoundscapePulseId(null);
     setOpenModal("soundtrack");
   }
 
@@ -184,6 +196,7 @@ export default function Home() {
     setPendingOpeningBellId(openingBellId);
     setPendingIntervalBellId(intervalBellId);
     setPendingIntervalEveryMinutes(intervalEveryMinutes);
+    setBellPulseId(null);
     setOpenModal("bells");
   }
 
@@ -332,6 +345,7 @@ export default function Home() {
                         type="button"
                         onClick={() => {
                           stopMediaPreview();
+                          setSoundscapePulseId(null);
                           setPendingSoundtrackId(null);
                         }}
                         className={`flex w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
@@ -351,6 +365,7 @@ export default function Home() {
                             type="button"
                             onClick={() => {
                               setPendingSoundtrackId(s.id);
+                              setSoundscapePulseId(s.id);
                               startMediaPreview(s.media_url, true);
                             }}
                             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
@@ -360,7 +375,7 @@ export default function Home() {
                             }`}
                           >
                             <span className="min-w-0 flex-1">{s.name}</span>
-                            {selected && (
+                            {soundscapePulseId === s.id && (
                               <span
                                 className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
                                 aria-hidden
@@ -396,6 +411,7 @@ export default function Home() {
                         )}
                         onOpen={() => {
                           setPendingBellCategory(opt.id);
+                          setBellPulseId(null);
                           setBellsUiStep(opt.id);
                         }}
                       />
@@ -412,7 +428,10 @@ export default function Home() {
                   type="button"
                   className="absolute left-3 top-3 z-10 flex h-10 items-center gap-0.5 rounded-full px-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-50"
                   aria-label="Back"
-                  onClick={() => setBellsUiStep("menu")}
+                  onClick={() => {
+                    setBellPulseId(null);
+                    setBellsUiStep("menu");
+                  }}
                 >
                   <span className="text-lg leading-none">‹</span>
                   <span>Back</span>
@@ -429,6 +448,7 @@ export default function Home() {
                           type="button"
                           onClick={() => {
                             stopMediaPreview();
+                            setBellPulseId(null);
                             setPendingStartingBellId(null);
                           }}
                           className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
@@ -447,6 +467,7 @@ export default function Home() {
                           type="button"
                           onClick={() => {
                             stopMediaPreview();
+                            setBellPulseId(null);
                             setPendingOpeningBellId(null);
                           }}
                           className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
@@ -465,6 +486,7 @@ export default function Home() {
                           type="button"
                           onClick={() => {
                             stopMediaPreview();
+                            setBellPulseId(null);
                             setPendingIntervalBellId(null);
                           }}
                           className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
@@ -486,6 +508,7 @@ export default function Home() {
                             type="button"
                             onClick={() => {
                               setPendingBellIdFor(cat, b.id);
+                              setBellPulseId(b.id);
                               startMediaPreview(b.media_url, false);
                             }}
                             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
@@ -495,7 +518,7 @@ export default function Home() {
                             }`}
                           >
                             <span className="min-w-0 flex-1 truncate">{b.name}</span>
-                            {selected && (
+                            {bellPulseId === b.id && (
                               <span
                                 className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
                                 aria-hidden
