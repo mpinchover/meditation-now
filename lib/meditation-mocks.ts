@@ -26,4 +26,4 @@ export const MOCK_BELL_SOUNDS: CatalogBellSound[] = mockSounds.bells.map((b, i) 
   media_url: b.media_url,
 }));
 
-export type BellCategory = "starting" | "opening" | "interval";
+export type BellCategory = "starting" | "ending" | "interval";

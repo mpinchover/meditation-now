@@ -13,7 +13,7 @@ type BellsUiStep = "menu" | BellCategory;
 
 const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
   { id: "starting", label: "Starting" },
-  { id: "opening", label: "Opening" },
+  { id: "ending", label: "Ending" },
   { id: "interval", label: "Interval" },
 ];
 
@@ -28,6 +28,153 @@ function formatDuration(hours: number, minutes: number): string {
   return parts.join(" ");
 }
 
+function formatCountdown(totalSeconds: number): string {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+type SessionSnapshot = {
+  totalSeconds: number;
+  soundtrackId: string | null;
+  startingBellId: string | null;
+  endingBellId: string | null;
+  intervalBellId: string | null;
+  intervalEveryMinutes: number;
+};
+
+function bellMediaUrl(id: string | null): string | null {
+  if (id === null) return null;
+  return MOCK_BELL_SOUNDS.find((b) => b.id === id)?.media_url ?? null;
+}
+
+function playBellOnce(url: string) {
+  const a = new Audio(url);
+  a.volume = 0.9;
+  void a.play().catch(() => {});
+}
+
+function MeditationSession(props: {
+  config: SessionSnapshot;
+  onExit: () => void;
+}) {
+  const { config } = props;
+  const [remaining, setRemaining] = useState(config.totalSeconds);
+  const [finished, setFinished] = useState(false);
+  const endAtRef = useRef(0);
+  const startedAtRef = useRef(0);
+  const lastIntervalTierRef = useRef(0);
+  const completedRef = useRef(false);
+  const soundscapeRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const now = Date.now();
+    startedAtRef.current = now;
+    endAtRef.current = now + config.totalSeconds * 1000;
+    lastIntervalTierRef.current = 0;
+    completedRef.current = false;
+
+    const startUrl = bellMediaUrl(config.startingBellId);
+    if (startUrl) playBellOnce(startUrl);
+
+    if (config.soundtrackId) {
+      const url = MOCK_SOUNDSCAPES.find((s) => s.id === config.soundtrackId)?.media_url;
+      if (url) {
+        const audio = new Audio(url);
+        audio.loop = true;
+        audio.volume = 0.85;
+        soundscapeRef.current = audio;
+        void audio.play().catch(() => {});
+      }
+    }
+
+    return () => {
+      const a = soundscapeRef.current;
+      if (a) {
+        a.pause();
+        a.removeAttribute("src");
+        a.load();
+        soundscapeRef.current = null;
+      }
+    };
+  }, [config]);
+
+  useEffect(() => {
+    const intervalSec = config.intervalEveryMinutes * 60;
+
+    const tick = () => {
+      if (completedRef.current) return;
+      const now = Date.now();
+      const remainingSec = Math.max(0, Math.ceil((endAtRef.current - now) / 1000));
+      setRemaining(remainingSec);
+
+      if (remainingSec > 0) {
+        const elapsedSec = Math.floor((now - startedAtRef.current) / 1000);
+        if (config.intervalBellId && intervalSec > 0 && elapsedSec >= intervalSec) {
+          const tier = Math.floor(elapsedSec / intervalSec);
+          if (tier > lastIntervalTierRef.current) {
+            lastIntervalTierRef.current = tier;
+            const url = bellMediaUrl(config.intervalBellId);
+            if (url) playBellOnce(url);
+          }
+        }
+      }
+
+      if (remainingSec <= 0 && !completedRef.current) {
+        completedRef.current = true;
+        setFinished(true);
+        const bg = soundscapeRef.current;
+        if (bg) {
+          bg.pause();
+          bg.currentTime = 0;
+        }
+        const endUrl = bellMediaUrl(config.endingBellId);
+        if (endUrl) playBellOnce(endUrl);
+      }
+    };
+
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [config]);
+
+  return (
+    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-10 px-5 py-10">
+      {!finished ? (
+        <>
+          <div className="space-y-2 text-center">
+            <p className="text-sm font-medium text-zinc-400">Session in progress</p>
+            <p
+              className="text-6xl font-light tabular-nums tracking-tight text-zinc-50"
+              aria-live="polite"
+            >
+              {formatCountdown(remaining)}
+            </p>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="space-y-3 text-center">
+            <p className="text-lg font-semibold text-zinc-100">Finished</p>
+            <p className="text-sm text-zinc-400">Take a gentle breath whenever you&apos;re ready.</p>
+          </div>
+          <button
+            type="button"
+            onClick={props.onExit}
+            className="w-full rounded-2xl bg-emerald-600 py-4 text-center text-base font-semibold text-white shadow-lg shadow-emerald-950/40 transition hover:bg-emerald-500 active:scale-[0.99]"
+          >
+            Finish
+          </button>
+        </>
+      )}
+    </main>
+  );
+}
+
 function bellNameOrNone(
   id: string | null,
   catalog: { id: string; name: string }[],
@@ -39,15 +186,15 @@ function bellNameOrNone(
 function bellsMenuSummary(
   cat: BellCategory,
   startingId: string | null,
-  openingId: string | null,
+  endingId: string | null,
   intervalId: string | null,
   intervalMinutes: number,
 ): string {
   switch (cat) {
     case "starting":
       return bellNameOrNone(startingId, MOCK_BELL_SOUNDS);
-    case "opening":
-      return bellNameOrNone(openingId, MOCK_BELL_SOUNDS);
+    case "ending":
+      return bellNameOrNone(endingId, MOCK_BELL_SOUNDS);
     case "interval":
       if (intervalId === null) return "None";
       return `${bellNameOrNone(intervalId, MOCK_BELL_SOUNDS)} · every ${intervalMinutes}m`;
@@ -66,7 +213,7 @@ export default function Home() {
 
   const [bellCategory, setBellCategory] = useState<BellCategory>("starting");
   const [startingBellId, setStartingBellId] = useState<string | null>(null);
-  const [openingBellId, setOpeningBellId] = useState<string | null>(
+  const [endingBellId, setEndingBellId] = useState<string | null>(
     MOCK_BELL_SOUNDS[0]?.id ?? null,
   );
   const [intervalBellId, setIntervalBellId] = useState<string | null>(
@@ -84,8 +231,8 @@ export default function Home() {
   const [pendingStartingBellId, setPendingStartingBellId] = useState<string | null>(
     startingBellId,
   );
-  const [pendingOpeningBellId, setPendingOpeningBellId] = useState<string | null>(
-    openingBellId,
+  const [pendingEndingBellId, setPendingEndingBellId] = useState<string | null>(
+    endingBellId,
   );
   const [pendingIntervalBellId, setPendingIntervalBellId] = useState<string | null>(
     intervalBellId,
@@ -101,12 +248,14 @@ export default function Home() {
 
   const [bellsUiStep, setBellsUiStep] = useState<BellsUiStep>("menu");
 
+  const [activeSession, setActiveSession] = useState<SessionSnapshot | null>(null);
+
   function pendingBellIdFor(cat: BellCategory): string | null {
     switch (cat) {
       case "starting":
         return pendingStartingBellId;
-      case "opening":
-        return pendingOpeningBellId;
+      case "ending":
+        return pendingEndingBellId;
       case "interval":
         return pendingIntervalBellId;
     }
@@ -117,8 +266,8 @@ export default function Home() {
       case "starting":
         setPendingStartingBellId(id);
         break;
-      case "opening":
-        setPendingOpeningBellId(id);
+      case "ending":
+        setPendingEndingBellId(id);
         break;
       case "interval":
         setPendingIntervalBellId(id);
@@ -193,7 +342,7 @@ export default function Home() {
     setBellsUiStep("menu");
     setPendingBellCategory(bellCategory);
     setPendingStartingBellId(startingBellId);
-    setPendingOpeningBellId(openingBellId);
+    setPendingEndingBellId(endingBellId);
     setPendingIntervalBellId(intervalBellId);
     setPendingIntervalEveryMinutes(intervalEveryMinutes);
     setBellPulseId(null);
@@ -214,7 +363,7 @@ export default function Home() {
   function saveBellsModal() {
     setBellCategory(pendingBellCategory);
     setStartingBellId(pendingStartingBellId);
-    setOpeningBellId(pendingOpeningBellId);
+    setEndingBellId(pendingEndingBellId);
     setIntervalBellId(pendingIntervalBellId);
     setIntervalEveryMinutes(pendingIntervalEveryMinutes);
     setOpenModal(null);
@@ -244,43 +393,66 @@ export default function Home() {
   const hourOptions = Array.from({ length: 12 }, (_, i) => i);
   const minuteOptions = Array.from({ length: 12 }, (_, i) => i * 5);
 
+  function beginSession() {
+    stopMediaPreview();
+    setOpenModal(null);
+    const totalSeconds = hours * 3600 + minutes * 60;
+    setActiveSession({
+      totalSeconds,
+      soundtrackId,
+      startingBellId,
+      endingBellId,
+      intervalBellId,
+      intervalEveryMinutes,
+    });
+  }
+
+  function endSessionFromFinish() {
+    setActiveSession(null);
+  }
+
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-950 text-zinc-100">
-      <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-5 py-10">
-        <header className="shrink-0 space-y-1 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
-            Meditate
-          </h1>
-          <p className="text-sm text-zinc-400">Set your session, then begin.</p>
-        </header>
+      {activeSession ? (
+        <MeditationSession config={activeSession} onExit={endSessionFromFinish} />
+      ) : (
+        <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-5 py-10">
+          <header className="shrink-0 space-y-1 text-center">
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
+              Meditate
+            </h1>
+            <p className="text-sm text-zinc-400">Set your session, then begin.</p>
+          </header>
 
-        <section className="flex shrink-0 flex-col gap-3">
-          <FieldRow
-            label="Duration"
-            value={formatDuration(hours, minutes)}
-            onOpen={openDurationModal}
-          />
-          <FieldRow
-            label="Soundscape"
-            value={soundtrackTitle}
-            onOpen={openSoundtrackModal}
-          />
-          <FieldRow
-            label="Bells"
-            value={startingBellSummary}
-            onOpen={openBellsModal}
-          />
-        </section>
+          <section className="flex shrink-0 flex-col gap-3">
+            <FieldRow
+              label="Duration"
+              value={formatDuration(hours, minutes)}
+              onOpen={openDurationModal}
+            />
+            <FieldRow
+              label="Soundscape"
+              value={soundtrackTitle}
+              onOpen={openSoundtrackModal}
+            />
+            <FieldRow
+              label="Bells"
+              value={startingBellSummary}
+              onOpen={openBellsModal}
+            />
+          </section>
 
-        <div className="shrink-0 pt-2">
-          <button
-            type="button"
-            className="w-full rounded-2xl bg-emerald-600 py-4 text-center text-base font-semibold text-white shadow-lg shadow-emerald-950/40 transition hover:bg-emerald-500 active:scale-[0.99]"
-          >
-            Begin
-          </button>
-        </div>
-      </main>
+          <div className="shrink-0 pt-2">
+            <button
+              type="button"
+              onClick={beginSession}
+              className="w-full rounded-2xl bg-emerald-600 py-4 text-center text-base font-semibold text-white shadow-lg shadow-emerald-950/40 transition hover:bg-emerald-500 active:scale-[0.99]"
+            >
+              Begin
+            </button>
+          </div>
+        </main>
+      )}
 
       {openModal && (
         <div
@@ -405,7 +577,7 @@ export default function Home() {
                         value={bellsMenuSummary(
                           opt.id,
                           pendingStartingBellId,
-                          pendingOpeningBellId,
+                          pendingEndingBellId,
                           pendingIntervalBellId,
                           pendingIntervalEveryMinutes,
                         )}
@@ -461,17 +633,17 @@ export default function Home() {
                         </button>
                       </li>
                     )}
-                    {bellsUiStep === "opening" && (
-                      <li key="opening-none">
+                    {bellsUiStep === "ending" && (
+                      <li key="ending-none">
                         <button
                           type="button"
                           onClick={() => {
                             stopMediaPreview();
                             setBellPulseId(null);
-                            setPendingOpeningBellId(null);
+                            setPendingEndingBellId(null);
                           }}
                           className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
-                            pendingOpeningBellId === null
+                            pendingEndingBellId === null
                               ? "font-medium text-zinc-100"
                               : "text-zinc-500"
                           }`}
