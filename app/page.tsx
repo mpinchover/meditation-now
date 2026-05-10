@@ -58,6 +58,31 @@ function playBellOnce(url: string) {
   void a.play().catch(() => {});
 }
 
+const SOUNDSCAPE_BASE_VOLUME = 0.85;
+/** Fade soundscape volume over the last N seconds of each file before manual loop restart. */
+const SOUNDSCAPE_LOOP_FADE_SEC = 3;
+
+function smoothstep01(t: number): number {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+}
+
+function applySoundscapeLoopFade(audio: HTMLAudioElement, sessionComplete: () => boolean) {
+  if (sessionComplete()) return;
+  const d = audio.duration;
+  if (!Number.isFinite(d) || d <= 0) {
+    audio.volume = SOUNDSCAPE_BASE_VOLUME;
+    return;
+  }
+  const fadeWindow = Math.min(SOUNDSCAPE_LOOP_FADE_SEC, d);
+  const tail = d - audio.currentTime;
+  if (tail <= fadeWindow && tail >= 0) {
+    audio.volume = SOUNDSCAPE_BASE_VOLUME * smoothstep01(tail / fadeWindow);
+  } else {
+    audio.volume = SOUNDSCAPE_BASE_VOLUME;
+  }
+}
+
 function MeditationSession(props: {
   config: SessionSnapshot;
   onExit: () => void;
@@ -81,18 +106,66 @@ function MeditationSession(props: {
     const startUrl = bellMediaUrl(config.startingBellId);
     if (startUrl) playBellOnce(startUrl);
 
+    let soundscapeRaf = 0;
+    const cancelVolLoop = () => {
+      cancelAnimationFrame(soundscapeRaf);
+      soundscapeRaf = 0;
+    };
+
+    const sessionDone = () => completedRef.current;
+
     if (config.soundtrackId) {
       const url = MOCK_SOUNDSCAPES.find((s) => s.id === config.soundtrackId)?.media_url;
       if (url) {
         const audio = new Audio(url);
-        audio.loop = true;
-        audio.volume = 0.85;
+        audio.loop = false;
+        audio.volume = SOUNDSCAPE_BASE_VOLUME;
+
+        const volLoop = () => {
+          if (!soundscapeRef.current || audio.paused || sessionDone()) {
+            cancelVolLoop();
+            return;
+          }
+          applySoundscapeLoopFade(audio, sessionDone);
+          soundscapeRaf = requestAnimationFrame(volLoop);
+        };
+
+        const onPlay = () => {
+          cancelVolLoop();
+          soundscapeRaf = requestAnimationFrame(volLoop);
+        };
+
+        const onEnded = () => {
+          cancelVolLoop();
+          if (sessionDone()) return;
+          audio.currentTime = 0;
+          audio.volume = SOUNDSCAPE_BASE_VOLUME;
+          void audio.play().catch(() => {});
+        };
+
+        audio.addEventListener("play", onPlay);
+        audio.addEventListener("ended", onEnded);
+
         soundscapeRef.current = audio;
         void audio.play().catch(() => {});
+
+        return () => {
+          cancelVolLoop();
+          audio.removeEventListener("play", onPlay);
+          audio.removeEventListener("ended", onEnded);
+          const a = soundscapeRef.current;
+          if (a) {
+            a.pause();
+            a.removeAttribute("src");
+            a.load();
+            soundscapeRef.current = null;
+          }
+        };
       }
     }
 
     return () => {
+      cancelVolLoop();
       const a = soundscapeRef.current;
       if (a) {
         a.pause();
