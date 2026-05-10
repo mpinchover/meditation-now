@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   MOCK_INTERVAL_BELLS,
   MOCK_OPENING_BELLS,
@@ -39,6 +39,32 @@ function formatDuration(hours: number, minutes: number): string {
   return parts.join(" ");
 }
 
+function bellNameOrNone(
+  id: string | null,
+  catalog: { id: string; name: string }[],
+): string {
+  if (id === null) return "None";
+  return catalog.find((b) => b.id === id)?.name ?? "None";
+}
+
+function bellsMenuSummary(
+  cat: BellCategory,
+  startingId: string | null,
+  openingId: string | null,
+  intervalId: string | null,
+  intervalMinutes: number,
+): string {
+  switch (cat) {
+    case "starting":
+      return bellNameOrNone(startingId, MOCK_STARTING_BELLS);
+    case "opening":
+      return bellNameOrNone(openingId, MOCK_OPENING_BELLS);
+    case "interval":
+      if (intervalId === null) return "None";
+      return `${bellNameOrNone(intervalId, MOCK_INTERVAL_BELLS)} · every ${intervalMinutes}m`;
+  }
+}
+
 export default function Home() {
   const [openModal, setOpenModal] = useState<ModalId>(null);
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -46,22 +72,36 @@ export default function Home() {
   const [hours, setHours] = useState(0);
   const [minutes, setMinutes] = useState(15);
 
-  const [soundtrackId, setSoundtrackId] = useState(MOCK_SOUNDTRACKS[0].id);
+  const [soundtrackId, setSoundtrackId] = useState<string | null>(
+    MOCK_SOUNDTRACKS[0]?.id ?? null,
+  );
 
   const [bellCategory, setBellCategory] = useState<BellCategory>("starting");
-  const [startingBellId, setStartingBellId] = useState(MOCK_STARTING_BELLS[0].id);
-  const [openingBellId, setOpeningBellId] = useState(MOCK_OPENING_BELLS[0].id);
-  const [intervalBellId, setIntervalBellId] = useState(MOCK_INTERVAL_BELLS[0].id);
+  const [startingBellId, setStartingBellId] = useState<string | null>(null);
+  const [openingBellId, setOpeningBellId] = useState<string | null>(
+    MOCK_OPENING_BELLS[0]?.id ?? null,
+  );
+  const [intervalBellId, setIntervalBellId] = useState<string | null>(
+    MOCK_INTERVAL_BELLS[0]?.id ?? null,
+  );
   const [intervalEveryMinutes, setIntervalEveryMinutes] = useState(5);
 
   const [pendingHours, setPendingHours] = useState(hours);
   const [pendingMinutes, setPendingMinutes] = useState(minutes);
-  const [pendingSoundtrackId, setPendingSoundtrackId] = useState(soundtrackId);
+  const [pendingSoundtrackId, setPendingSoundtrackId] = useState<string | null>(
+    soundtrackId,
+  );
   const [pendingBellCategory, setPendingBellCategory] =
     useState<BellCategory>(bellCategory);
-  const [pendingStartingBellId, setPendingStartingBellId] = useState(startingBellId);
-  const [pendingOpeningBellId, setPendingOpeningBellId] = useState(openingBellId);
-  const [pendingIntervalBellId, setPendingIntervalBellId] = useState(intervalBellId);
+  const [pendingStartingBellId, setPendingStartingBellId] = useState<string | null>(
+    startingBellId,
+  );
+  const [pendingOpeningBellId, setPendingOpeningBellId] = useState<string | null>(
+    openingBellId,
+  );
+  const [pendingIntervalBellId, setPendingIntervalBellId] = useState<string | null>(
+    intervalBellId,
+  );
   const [pendingIntervalEveryMinutes, setPendingIntervalEveryMinutes] =
     useState(intervalEveryMinutes);
 
@@ -69,7 +109,7 @@ export default function Home() {
 
   const [bellsUiStep, setBellsUiStep] = useState<BellsUiStep>("menu");
 
-  function pendingBellIdFor(cat: BellCategory): string {
+  function pendingBellIdFor(cat: BellCategory): string | null {
     switch (cat) {
       case "starting":
         return pendingStartingBellId;
@@ -95,32 +135,14 @@ export default function Home() {
   }
 
   const soundtrackTitle =
-    MOCK_SOUNDTRACKS.find((s) => s.id === soundtrackId)?.title ?? "Soundtrack";
+    soundtrackId === null
+      ? "None"
+      : MOCK_SOUNDTRACKS.find((s) => s.id === soundtrackId)?.title ?? "None";
 
-  const bellsListForDisplay = useMemo(() => {
-    switch (bellCategory) {
-      case "starting":
-        return MOCK_STARTING_BELLS;
-      case "opening":
-        return MOCK_OPENING_BELLS;
-      case "interval":
-        return MOCK_INTERVAL_BELLS;
-    }
-  }, [bellCategory]);
-
-  const displayBellId = useMemo(() => {
-    switch (bellCategory) {
-      case "starting":
-        return startingBellId;
-      case "opening":
-        return openingBellId;
-      case "interval":
-        return intervalBellId;
-    }
-  }, [bellCategory, startingBellId, openingBellId, intervalBellId]);
-
-  const selectedBellName =
-    bellsListForDisplay.find((b) => b.id === displayBellId)?.name ?? "Bell";
+  const startingBellSummary =
+    startingBellId === null
+      ? "None"
+      : MOCK_STARTING_BELLS.find((b) => b.id === startingBellId)?.name ?? "None";
 
   useEffect(() => {
     return () => {
@@ -225,13 +247,7 @@ export default function Home() {
           />
           <FieldRow
             label="Bells"
-            value={
-              bellCategory === "interval"
-                ? `Interval · ${selectedBellName} · every ${intervalEveryMinutes}m`
-                : bellCategory === "opening"
-                  ? `Opening · ${selectedBellName}`
-                  : `Starting · ${selectedBellName}`
-            }
+            value={startingBellSummary}
             onOpen={openBellsModal}
           />
         </section>
@@ -304,6 +320,19 @@ export default function Home() {
                     Soundtrack
                   </h2>
                   <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
+                    <li key="soundtrack-none">
+                      <button
+                        type="button"
+                        onClick={() => setPendingSoundtrackId(null)}
+                        className={`flex w-full flex-col rounded-xl px-3 py-3 text-left transition ${
+                          pendingSoundtrackId === null
+                            ? "bg-emerald-900/50 ring-1 ring-emerald-600/60"
+                            : "bg-zinc-800/80 hover:bg-zinc-800"
+                        }`}
+                      >
+                        <span className="font-medium text-zinc-100">None</span>
+                      </button>
+                    </li>
                     {MOCK_SOUNDTRACKS.map((s) => {
                       const selected = pendingSoundtrackId === s.id;
                       const flash = previewFlashKey === `soundtrack:${s.id}`;
@@ -341,19 +370,23 @@ export default function Home() {
                   <h2 className="mb-6 shrink-0 text-center text-lg font-semibold text-zinc-50">
                     Bells
                   </h2>
-                  <div className="flex min-h-0 flex-1 flex-col justify-start gap-2">
+                  <div className="flex min-h-0 flex-1 flex-col justify-start gap-3">
                     {BELL_TYPE_MENU.map((opt) => (
-                      <button
+                      <FieldRow
                         key={opt.id}
-                        type="button"
-                        className="rounded-xl bg-zinc-800/80 px-3 py-4 text-center text-sm font-medium text-zinc-100 transition hover:bg-zinc-800"
-                        onClick={() => {
+                        label={opt.label}
+                        value={bellsMenuSummary(
+                          opt.id,
+                          pendingStartingBellId,
+                          pendingOpeningBellId,
+                          pendingIntervalBellId,
+                          pendingIntervalEveryMinutes,
+                        )}
+                        onOpen={() => {
                           setPendingBellCategory(opt.id);
                           setBellsUiStep(opt.id);
                         }}
-                      >
-                        {opt.label}
-                      </button>
+                      />
                     ))}
                   </div>
                 </div>
@@ -378,6 +411,51 @@ export default function Home() {
                     {BELL_TYPE_MENU.find((o) => o.id === bellsUiStep)?.label}
                   </h2>
                   <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
+                    {bellsUiStep === "starting" && (
+                      <li key="starting-none">
+                        <button
+                          type="button"
+                          onClick={() => setPendingStartingBellId(null)}
+                          className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
+                            pendingStartingBellId === null
+                              ? "bg-emerald-900/50 text-emerald-100 ring-1 ring-emerald-600/60"
+                              : "bg-zinc-800/80 text-zinc-200 hover:bg-zinc-800"
+                          }`}
+                        >
+                          None
+                        </button>
+                      </li>
+                    )}
+                    {bellsUiStep === "opening" && (
+                      <li key="opening-none">
+                        <button
+                          type="button"
+                          onClick={() => setPendingOpeningBellId(null)}
+                          className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
+                            pendingOpeningBellId === null
+                              ? "bg-emerald-900/50 text-emerald-100 ring-1 ring-emerald-600/60"
+                              : "bg-zinc-800/80 text-zinc-200 hover:bg-zinc-800"
+                          }`}
+                        >
+                          None
+                        </button>
+                      </li>
+                    )}
+                    {bellsUiStep === "interval" && (
+                      <li key="interval-none">
+                        <button
+                          type="button"
+                          onClick={() => setPendingIntervalBellId(null)}
+                          className={`w-full rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
+                            pendingIntervalBellId === null
+                              ? "bg-emerald-900/50 text-emerald-100 ring-1 ring-emerald-600/60"
+                              : "bg-zinc-800/80 text-zinc-200 hover:bg-zinc-800"
+                          }`}
+                        >
+                          None
+                        </button>
+                      </li>
+                    )}
                     {bellCatalogFor(bellsUiStep).map((b) => {
                       const cat = bellsUiStep;
                       const selected = pendingBellIdFor(cat) === b.id;
