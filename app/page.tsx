@@ -967,6 +967,9 @@ export default function Home() {
 
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-950 text-zinc-100">
+      <p className="fixed left-4 top-4 z-20 text-sm font-medium tracking-wide text-zinc-500">
+        Callysto
+      </p>
       {activeSession ? (
         <MeditationSession
           config={activeSession}
@@ -989,13 +992,6 @@ export default function Home() {
         </div>
       ) : (
         <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-5 py-10">
-          <header className="shrink-0 space-y-1 text-center">
-            {/* <h1 className="text-2xl font-semibold tracking-tight text-zinc-50">
-              Meditate
-            </h1> */}
-         
-          </header>
-
           <section className="flex shrink-0 flex-col gap-3">
             <FieldRow
               label="Duration"
