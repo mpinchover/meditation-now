@@ -32,9 +32,10 @@ function catalogFromApiCustom(c: ApiCustomSoundscape): CatalogSoundscape {
     c.status === "success" &&
     typeof url === "string" &&
     url.length > 0;
+  const label = c.name?.trim();
   return {
     id: c.id,
-    name: c.link,
+    name: label && label.length > 0 ? label : c.link,
     media_url: ready ? url : "",
   };
 }
@@ -142,6 +143,30 @@ function parseYoutubeUrlFromInput(raw: string): URL | null {
   return unwrapToYoutube(parseHttpUrl(embedded[0]));
 }
 
+/** Best-effort video title for display (My sounds list); falls back to null on failure/CORS. */
+async function fetchYoutubeOEmbedTitle(canonicalWatchUrl: string): Promise<string | null> {
+  try {
+    const u = new URL("https://www.youtube.com/oembed");
+    u.searchParams.set("url", canonicalWatchUrl);
+    u.searchParams.set("format", "json");
+    const res = await fetch(u.toString());
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    if (
+      typeof data === "object" &&
+      data !== null &&
+      "title" in data &&
+      typeof (data as { title: unknown }).title === "string"
+    ) {
+      const t = (data as { title: string }).title.trim();
+      return t.length > 0 ? t : null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 const SOUNDSCAPE_BASE_VOLUME = 0.85;
 /** Fade soundscape volume over the last N seconds of each file before manual loop restart. */
 const SOUNDSCAPE_LOOP_FADE_SEC = 3;
@@ -231,6 +256,8 @@ function MeditationSession(props: {
   config: SessionSnapshot;
   bells: CatalogBellSound[];
   onExit: () => void;
+  /** Keeps the device screen on while `true` (Screen Wake Lock API). */
+  onPlaybackScreenWake?: (shouldKeepScreenOn: boolean) => void;
 }) {
   const { config } = props;
   const bellsRef = useRef(props.bells);
@@ -370,6 +397,16 @@ function MeditationSession(props: {
     return () => window.clearInterval(id);
   }, [config, bellMediaUrl]);
 
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (pausedRef.current || completedRef.current) return;
+      props.onPlaybackScreenWake?.(true);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [props.onPlaybackScreenWake]);
+
   function togglePause() {
     if (completedRef.current) return;
 
@@ -381,6 +418,7 @@ function MeditationSession(props: {
       setPaused(true);
       pauseWallStartedAtRef.current = Date.now();
       soundscapeRef.current?.pause();
+      props.onPlaybackScreenWake?.(false);
       return;
     }
 
@@ -393,6 +431,7 @@ function MeditationSession(props: {
     endAtRef.current = Date.now() + rem * 1000;
     pausedRef.current = false;
     setPaused(false);
+    props.onPlaybackScreenWake?.(true);
     void soundscapeRef.current?.play().catch(() => {});
   }
 
@@ -401,6 +440,7 @@ function MeditationSession(props: {
     completedRef.current = true;
     pausedRef.current = true;
     soundscapeRef.current?.pause();
+    props.onPlaybackScreenWake?.(false);
     onExitRef.current();
   }
 
@@ -538,11 +578,46 @@ export default function Home() {
   const [mySoundsUiStep, setMySoundsUiStep] = useState<MySoundsUiStep>("list");
   const [pendingYoutubeUrl, setPendingYoutubeUrl] = useState("");
   const [youtubeUrlError, setYoutubeUrlError] = useState<string | null>(null);
+  const [youtubeSaveBusy, setYoutubeSaveBusy] = useState(false);
   const [bellPulseId, setBellPulseId] = useState<string | null>(null);
 
   const [bellsUiStep, setBellsUiStep] = useState<BellsUiStep>("menu");
 
   const [activeSession, setActiveSession] = useState<SessionSnapshot | null>(null);
+  const sessionWakeLockRef = useRef<WakeLockSentinel | null>(null);
+
+  const releaseSessionWakeLock = useCallback(async () => {
+    const lock = sessionWakeLockRef.current;
+    sessionWakeLockRef.current = null;
+    if (!lock) return;
+    try {
+      await lock.release();
+    } catch {
+      /* already released */
+    }
+  }, []);
+
+  const acquireSessionWakeLock = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.wakeLock) return;
+    await releaseSessionWakeLock();
+    try {
+      const lock = await navigator.wakeLock.request("screen");
+      sessionWakeLockRef.current = lock;
+      lock.addEventListener("release", () => {
+        if (sessionWakeLockRef.current === lock) sessionWakeLockRef.current = null;
+      });
+    } catch {
+      /* denied, unsupported, or no recent user gesture */
+    }
+  }, [releaseSessionWakeLock]);
+
+  const onPlaybackScreenWake = useCallback(
+    (shouldKeepScreenOn: boolean) => {
+      if (shouldKeepScreenOn) void acquireSessionWakeLock();
+      else void releaseSessionWakeLock();
+    },
+    [acquireSessionWakeLock, releaseSessionWakeLock],
+  );
 
   function pendingBellIdFor(cat: BellCategory): string | null {
     switch (cat) {
@@ -748,7 +823,8 @@ export default function Home() {
     };
   }, []);
 
-  function saveMyYoutubeSound() {
+  async function saveMyYoutubeSound() {
+    if (youtubeSaveBusy) return;
     const parsed = parseYoutubeUrlFromInput(pendingYoutubeUrl);
     if (!parsed) {
       setYoutubeUrlError("Use a valid YouTube link (youtube.com or youtu.be).");
@@ -757,9 +833,17 @@ export default function Home() {
     setYoutubeUrlError(null);
     const id = `yt-${Date.now()}`;
     const canonical = parsed.toString();
+    setYoutubeSaveBusy(true);
+    let displayName = canonical;
+    try {
+      const title = await fetchYoutubeOEmbedTitle(canonical);
+      if (title) displayName = title;
+    } finally {
+      setYoutubeSaveBusy(false);
+    }
     setMySoundscapes((prev) => [
       ...prev,
-      { id, name: canonical, media_url: canonical },
+      { id, name: displayName, media_url: canonical },
     ]);
     beginMySoundscapeDownload(id);
     setPendingSoundtrackId(id);
@@ -834,9 +918,10 @@ export default function Home() {
   const hourOptions = Array.from({ length: 12 }, (_, i) => i);
   const minuteOptions = Array.from({ length: 60 }, (_, i) => i );
 
-  function beginSession() {
+  async function beginSession() {
     stopMediaPreview();
     setOpenModal(null);
+    await acquireSessionWakeLock();
     const totalSeconds = hours * 3600 + minutes * 60;
     const soundtrackMediaUrl =
       soundtrackId === null
@@ -856,6 +941,7 @@ export default function Home() {
   }
 
   function endSessionFromFinish() {
+    void releaseSessionWakeLock();
     setActiveSession(null);
   }
 
@@ -866,6 +952,7 @@ export default function Home() {
           config={activeSession}
           bells={bellsCatalog}
           onExit={endSessionFromFinish}
+          onPlaybackScreenWake={onPlaybackScreenWake}
         />
       ) : soundsLoading ? (
         <SoundsBootstrapSpinner />
@@ -910,7 +997,7 @@ export default function Home() {
           <div className="shrink-0 pt-2">
             <button
               type="button"
-              onClick={beginSession}
+              onClick={() => void beginSession()}
               className="w-full rounded-2xl border border-zinc-600 bg-zinc-800 py-4 text-center text-base font-semibold text-zinc-50 shadow-lg shadow-black/45 transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99]"
             >
               Begin
@@ -1037,8 +1124,11 @@ export default function Home() {
                     </div>
                   </div>
                   <ModalSaveFooter
-                    onSave={saveMyYoutubeSound}
-                    disabled={pendingYoutubeUrl.trim() === ""}
+                    onSave={() => {
+                      void saveMyYoutubeSound();
+                    }}
+                    disabled={pendingYoutubeUrl.trim() === "" || youtubeSaveBusy}
+                    saveLabel={youtubeSaveBusy ? "Saving…" : "Save"}
                   />
                 </>
               )}
@@ -1400,8 +1490,10 @@ export default function Home() {
 function ModalSaveFooter(props: {
   onSave: () => void;
   disabled?: boolean;
+  saveLabel?: string;
 }) {
   const disabled = props.disabled ?? false;
+  const label = props.saveLabel ?? "Save";
   return (
     <div className="shrink-0 px-4 py-3 backdrop-blur-sm">
       <button
@@ -1414,7 +1506,7 @@ function ModalSaveFooter(props: {
             : "border border-zinc-600 bg-zinc-800 text-zinc-50 hover:border-zinc-500 hover:bg-zinc-700"
         }`}
       >
-        Save
+        {label}
       </button>
     </div>
   );

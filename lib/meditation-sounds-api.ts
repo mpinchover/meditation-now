@@ -16,6 +16,8 @@ export type ApiSoundscape = {
 export type ApiCustomSoundscape = {
   id: string;
   link: string;
+  /** User-facing label; prefer this over `link` in UI. */
+  name?: string;
   media_url?: string | null;
   status: string;
 };
