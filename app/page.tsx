@@ -2,9 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  MOCK_BELL_SOUNDS,
-  MOCK_SOUNDSCAPES,
+  fetchMeditationSounds,
+  type ApiCustomSoundscape,
+  type MeditationSoundsResponse,
+} from "@/lib/meditation-sounds-api";
+import {
   type BellCategory,
+  type CatalogBellSound,
   type CatalogSoundscape,
 } from "@/lib/meditation-mocks";
 
@@ -22,8 +26,17 @@ const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
   { id: "interval", label: "Interval" },
 ];
 
-function bellCatalogFor(_cat: BellCategory) {
-  return MOCK_BELL_SOUNDS;
+function catalogFromApiCustom(c: ApiCustomSoundscape): CatalogSoundscape {
+  const url = c.media_url;
+  const ready =
+    c.status === "success" &&
+    typeof url === "string" &&
+    url.length > 0;
+  return {
+    id: c.id,
+    name: c.link,
+    media_url: ready ? url : "",
+  };
 }
 
 function formatDuration(hours: number, minutes: number): string {
@@ -53,11 +66,6 @@ type SessionSnapshot = {
   intervalBellId: string | null;
   intervalEveryMinutes: number;
 };
-
-function bellMediaUrl(id: string | null): string | null {
-  if (id === null) return null;
-  return MOCK_BELL_SOUNDS.find((b) => b.id === id)?.media_url ?? null;
-}
 
 function playBellOnce(url: string) {
   const a = new Audio(url);
@@ -186,6 +194,24 @@ function MySoundDownloadSpinner() {
   );
 }
 
+function SoundsBootstrapSpinner(props: {
+  /** Optional message shown under the spinner. */
+  message?: string;
+}) {
+  const message = props.message ?? "Loading sounds…";
+  return (
+    <div
+      className="flex min-h-full flex-1 flex-col items-center justify-center gap-4 px-6 py-16"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <span className="size-10 shrink-0 rounded-full border-2 border-zinc-700 border-t-zinc-300 animate-spin" />
+      <p className="text-center text-sm text-zinc-400">{message}</p>
+    </div>
+  );
+}
+
 function applySoundscapeLoopFade(audio: HTMLAudioElement) {
   const d = audio.duration;
   if (!Number.isFinite(d) || d <= 0) {
@@ -203,9 +229,17 @@ function applySoundscapeLoopFade(audio: HTMLAudioElement) {
 
 function MeditationSession(props: {
   config: SessionSnapshot;
+  bells: CatalogBellSound[];
   onExit: () => void;
 }) {
   const { config } = props;
+  const bellsRef = useRef(props.bells);
+  bellsRef.current = props.bells;
+
+  const bellMediaUrl = useCallback((id: string | null): string | null => {
+    if (id === null) return null;
+    return bellsRef.current.find((b) => b.id === id)?.media_url ?? null;
+  }, []);
   const [remaining, setRemaining] = useState(config.totalSeconds);
   const [paused, setPaused] = useState(false);
   const endAtRef = useRef(0);
@@ -294,7 +328,7 @@ function MeditationSession(props: {
         soundscapeRef.current = null;
       }
     };
-  }, [config]);
+  }, [config, bellMediaUrl]);
 
   useEffect(() => {
     const intervalSec = config.intervalEveryMinutes * 60;
@@ -334,7 +368,7 @@ function MeditationSession(props: {
     tick();
     const id = window.setInterval(tick, 1000);
     return () => window.clearInterval(id);
-  }, [config]);
+  }, [config, bellMediaUrl]);
 
   function togglePause() {
     if (completedRef.current) return;
@@ -432,6 +466,7 @@ function bellNameOrNone(
 }
 
 function bellsMenuSummary(
+  bells: CatalogBellSound[],
   cat: BellCategory,
   startingId: string | null,
   endingId: string | null,
@@ -440,12 +475,12 @@ function bellsMenuSummary(
 ): string {
   switch (cat) {
     case "starting":
-      return bellNameOrNone(startingId, MOCK_BELL_SOUNDS);
+      return bellNameOrNone(startingId, bells);
     case "ending":
-      return bellNameOrNone(endingId, MOCK_BELL_SOUNDS);
+      return bellNameOrNone(endingId, bells);
     case "interval":
       if (intervalId === null) return "None";
-      return `${bellNameOrNone(intervalId, MOCK_BELL_SOUNDS)} · every ${intervalMinutes}m`;
+      return `${bellNameOrNone(intervalId, bells)} · every ${intervalMinutes}m`;
   }
 }
 
@@ -455,18 +490,19 @@ export default function Home() {
   const [hours, setHours] = useState(0);
   const [minutes, setMinutes] = useState(15);
 
-  const [soundtrackId, setSoundtrackId] = useState<string | null>(
-    MOCK_SOUNDSCAPES[0]?.id ?? null,
-  );
+  const [librarySoundscapes, setLibrarySoundscapes] = useState<
+    CatalogSoundscape[]
+  >([]);
+  const [bellsCatalog, setBellsCatalog] = useState<CatalogBellSound[]>([]);
+  const [soundsLoading, setSoundsLoading] = useState(true);
+  const [soundsError, setSoundsError] = useState<string | null>(null);
+
+  const [soundtrackId, setSoundtrackId] = useState<string | null>(null);
 
   const [bellCategory, setBellCategory] = useState<BellCategory>("starting");
   const [startingBellId, setStartingBellId] = useState<string | null>(null);
-  const [endingBellId, setEndingBellId] = useState<string | null>(
-    MOCK_BELL_SOUNDS[0]?.id ?? null,
-  );
-  const [intervalBellId, setIntervalBellId] = useState<string | null>(
-    MOCK_BELL_SOUNDS[0]?.id ?? null,
-  );
+  const [endingBellId, setEndingBellId] = useState<string | null>(null);
+  const [intervalBellId, setIntervalBellId] = useState<string | null>(null);
   const [intervalEveryMinutes, setIntervalEveryMinutes] = useState(5);
 
   const [pendingHours, setPendingHours] = useState(hours);
@@ -536,14 +572,76 @@ export default function Home() {
   const soundtrackTitle =
     soundtrackId === null
       ? "None"
-      : MOCK_SOUNDSCAPES.find((s) => s.id === soundtrackId)?.name ??
+      : librarySoundscapes.find((s) => s.id === soundtrackId)?.name ??
         mySoundscapes.find((s) => s.id === soundtrackId)?.name ??
         "None";
 
   const startingBellSummary =
     startingBellId === null
       ? "None"
-      : MOCK_BELL_SOUNDS.find((b) => b.id === startingBellId)?.name ?? "None";
+      : bellsCatalog.find((b) => b.id === startingBellId)?.name ?? "None";
+
+  const applySoundsResponse = useCallback((data: MeditationSoundsResponse) => {
+    setLibrarySoundscapes(data.soundscapes);
+    setBellsCatalog(data.bells);
+
+    setMySoundscapes((prev) => {
+      const locals = prev.filter((s) => s.id.startsWith("yt-"));
+      const fromApi = data.custom_soundscapes.map(catalogFromApiCustom);
+      return [...fromApi, ...locals];
+    });
+
+    setMySoundscapeDownloadingIds((prev) => {
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (id.startsWith("yt-")) next.add(id);
+      }
+      for (const c of data.custom_soundscapes) {
+        const ready =
+          c.status === "success" &&
+          typeof c.media_url === "string" &&
+          c.media_url.length > 0;
+        if (!ready) next.add(c.id);
+      }
+      return next;
+    });
+
+    setSoundtrackId((cur) => {
+      const first = data.soundscapes[0]?.id ?? null;
+      if (cur === null) return first;
+      if (cur.startsWith("yt-")) return cur;
+      if (data.soundscapes.some((s) => s.id === cur)) return cur;
+      if (data.custom_soundscapes.some((cs) => cs.id === cur)) return cur;
+      return first;
+    });
+
+    const firstBellId = data.bells[0]?.id ?? null;
+    setEndingBellId((cur) =>
+      cur === null || !data.bells.some((b) => b.id === cur) ? firstBellId : cur,
+    );
+    setIntervalBellId((cur) =>
+      cur === null || !data.bells.some((b) => b.id === cur) ? firstBellId : cur,
+    );
+    setStartingBellId((cur) =>
+      cur !== null && !data.bells.some((b) => b.id === cur) ? null : cur,
+    );
+  }, []);
+
+  const loadSounds = useCallback(async () => {
+    setSoundsLoading(true);
+    setSoundsError(null);
+    try {
+      applySoundsResponse(await fetchMeditationSounds());
+    } catch (e) {
+      setSoundsError(e instanceof Error ? e.message : "Could not load sounds.");
+    } finally {
+      setSoundsLoading(false);
+    }
+  }, [applySoundsResponse]);
+
+  useEffect(() => {
+    void loadSounds();
+  }, [loadSounds]);
 
   const stopMediaPreview = useCallback(() => {
     const a = previewAudioRef.current;
@@ -743,8 +841,8 @@ export default function Home() {
     const soundtrackMediaUrl =
       soundtrackId === null
         ? null
-        : mySoundscapes.find((s) => s.id === soundtrackId)?.media_url ??
-          MOCK_SOUNDSCAPES.find((s) => s.id === soundtrackId)?.media_url ??
+        : mySoundscapes.find((s) => s.id === soundtrackId)?.media_url ||
+          librarySoundscapes.find((s) => s.id === soundtrackId)?.media_url ||
           null;
     setActiveSession({
       totalSeconds,
@@ -764,7 +862,24 @@ export default function Home() {
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-950 text-zinc-100">
       {activeSession ? (
-        <MeditationSession config={activeSession} onExit={endSessionFromFinish} />
+        <MeditationSession
+          config={activeSession}
+          bells={bellsCatalog}
+          onExit={endSessionFromFinish}
+        />
+      ) : soundsLoading ? (
+        <SoundsBootstrapSpinner />
+      ) : soundsError ? (
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-5 px-6 py-16">
+          <p className="text-center text-sm leading-relaxed text-zinc-400">{soundsError}</p>
+          <button
+            type="button"
+            onClick={() => void loadSounds()}
+            className="rounded-xl border border-zinc-600 bg-zinc-800 px-6 py-2.5 text-sm font-semibold text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99]"
+          >
+            Try again
+          </button>
+        </div>
       ) : (
         <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-5 py-10">
           <header className="shrink-0 space-y-1 text-center">
@@ -804,7 +919,7 @@ export default function Home() {
         </main>
       )}
 
-      {openModal && (
+      {openModal && !soundsLoading && !soundsError && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 px-4 py-6 backdrop-blur-[2px]"
           role="presentation"
@@ -989,7 +1104,7 @@ export default function Home() {
                             None
                           </button>
                         </li>
-                        {MOCK_SOUNDSCAPES.map((s) => {
+                        {librarySoundscapes.map((s) => {
                           const selected = pendingSoundtrackId === s.id;
                           return (
                             <li key={s.id}>
@@ -1050,6 +1165,11 @@ export default function Home() {
                                   title={s.name}
                                   onClick={() => {
                                     setPendingSoundtrackId(s.id);
+                                    if (!s.media_url.trim()) {
+                                      stopMediaPreview();
+                                      setSoundscapePulseId(null);
+                                      return;
+                                    }
                                     setSoundscapePulseId(s.id);
                                     startMediaPreview(s.media_url, true);
                                   }}
@@ -1110,6 +1230,7 @@ export default function Home() {
                         key={opt.id}
                         label={opt.label}
                         value={bellsMenuSummary(
+                          bellsCatalog,
                           opt.id,
                           pendingStartingBellId,
                           pendingEndingBellId,
@@ -1206,7 +1327,7 @@ export default function Home() {
                         </button>
                       </li>
                     )}
-                    {bellCatalogFor(bellsUiStep).map((b) => {
+                    {bellsCatalog.map((b) => {
                       const cat = bellsUiStep;
                       const selected = pendingBellIdFor(cat) === b.id;
                       return (
