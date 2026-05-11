@@ -5,6 +5,7 @@ import {
   fetchMeditationSounds,
   postDownloadSound,
   type ApiCustomSoundscape,
+  type ApiSoundscape,
   type MeditationSoundsResponse,
 } from "@/lib/meditation-sounds-api";
 import {
@@ -12,31 +13,18 @@ import {
   type CatalogBellSound,
   type CatalogSoundscape,
 } from "@/lib/meditation-mocks";
+import {
+  SOUNDSCAPE_CATEGORY_TABS,
+  apiSoundscapeCategoryToTab,
+  displayNameForApiSoundscape,
+  type SoundscapeListTab,
+} from "@/lib/soundscape-categories";
 
 type ModalId = "duration" | "soundtrack" | "bells" | null;
 
 type BellsUiStep = "menu" | BellCategory;
 
-type SoundscapeListTab =
-  | "ambient"
-  | "ohm"
-  | "temple_bells"
-  | "binaural"
-  | "drones"
-  | "bowls"
-  | "sleep";
-
 type MySoundsUiStep = "list" | "add_youtube";
-
-const SOUNDSCAPE_CATEGORY_TABS: { id: SoundscapeListTab; label: string }[] = [
-  { id: "ambient", label: "Ambient" },
-  { id: "ohm", label: "Ohm" },
-  { id: "temple_bells", label: "Temple bells" },
-  { id: "binaural", label: "Binaural" },
-  { id: "drones", label: "Drones" },
-  { id: "bowls", label: "Bowls" },
-  { id: "sleep", label: "Sleep" },
-];
 
 const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
   { id: "starting", label: "Starting" },
@@ -55,7 +43,29 @@ function catalogFromApiCustom(c: ApiCustomSoundscape): CatalogSoundscape {
     id: c.id,
     name: label && label.length > 0 ? label : c.link,
     media_url: ready ? url : "",
+    tab: "ambient",
   };
+}
+
+function catalogFromApiSoundscape(s: ApiSoundscape): CatalogSoundscape {
+  return {
+    id: s.id,
+    name: displayNameForApiSoundscape(s),
+    media_url: s.media_url,
+    tab: apiSoundscapeCategoryToTab(s.category),
+  };
+}
+
+function soundscapeListTabForSelection(
+  id: string | null,
+  library: CatalogSoundscape[],
+  customs: CatalogSoundscape[],
+): SoundscapeListTab {
+  if (id === null) return "none";
+  const fromLibrary = library.find((s) => s.id === id);
+  if (fromLibrary) return fromLibrary.tab;
+  if (customs.some((s) => s.id === id)) return "ambient";
+  return "ambient";
 }
 
 function formatDuration(hours: number, minutes: number): string {
@@ -581,7 +591,7 @@ export default function Home() {
   /** Row id whose preview/dot was activated by user tap this session (not initial selection). */
   const [soundscapePulseId, setSoundscapePulseId] = useState<string | null>(null);
   const [soundscapeListTab, setSoundscapeListTab] =
-    useState<SoundscapeListTab>("ambient");
+    useState<SoundscapeListTab>("none");
   const [mySoundscapes, setMySoundscapes] = useState<CatalogSoundscape[]>([]);
   const [mySoundscapeDownloadingIds, setMySoundscapeDownloadingIds] = useState<
     Set<string>
@@ -668,7 +678,7 @@ export default function Home() {
       : bellsCatalog.find((b) => b.id === startingBellId)?.name ?? "None";
 
   const applySoundsResponse = useCallback((data: MeditationSoundsResponse) => {
-    setLibrarySoundscapes(data.soundscapes);
+    setLibrarySoundscapes(data.soundscapes.map(catalogFromApiSoundscape));
     setBellsCatalog(data.bells);
 
     setMySoundscapes(data.custom_soundscapes.map(catalogFromApiCustom));
@@ -793,7 +803,9 @@ export default function Home() {
   function openSoundtrackModal() {
     setPendingSoundtrackId(soundtrackId);
     setSoundscapePulseId(null);
-    setSoundscapeListTab("ambient");
+    setSoundscapeListTab(
+      soundscapeListTabForSelection(soundtrackId, librarySoundscapes, mySoundscapes),
+    );
     setMySoundsUiStep("list");
     setPendingYoutubeUrl("");
     setYoutubeUrlError(null);
@@ -1157,6 +1169,9 @@ export default function Home() {
                             setSoundscapeListTab(id);
                             stopMediaPreview();
                             setSoundscapePulseId(null);
+                            if (id === "none") {
+                              setPendingSoundtrackId(null);
+                            }
                             if (id !== "ambient") {
                               setMySoundsUiStep("list");
                               setPendingYoutubeUrl("");
@@ -1173,99 +1188,84 @@ export default function Home() {
                         </button>
                       ))}
                     </div>
-                    {soundscapeListTab === "ambient" ? (
-                      <div className="flex min-h-0 flex-1 flex-col gap-1">
-                        <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
-                          <li key="soundtrack-none">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                stopMediaPreview();
-                                setSoundscapePulseId(null);
-                                setPendingSoundtrackId(null);
-                              }}
-                              className={`flex w-full rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
-                                pendingSoundtrackId === null
-                                  ? "font-medium text-zinc-100"
-                                  : "text-zinc-500"
-                              }`}
-                            >
-                              None
-                            </button>
-                          </li>
-                          {librarySoundscapes.map((s) => {
-                            const selected = pendingSoundtrackId === s.id;
-                            return (
-                              <li key={s.id}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setPendingSoundtrackId(s.id);
-                                    setSoundscapePulseId(s.id);
-                                    startMediaPreview(s.media_url, true);
-                                  }}
-                                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
-                                    selected
-                                      ? "font-medium text-zinc-50"
-                                      : "text-zinc-500"
-                                  }`}
-                                >
-                                  <span className="min-w-0 flex-1">{s.name}</span>
-                                  {soundscapePulseId === s.id && (
-                                    <span
-                                      className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
-                                      aria-hidden
-                                    />
-                                  )}
-                                </button>
-                              </li>
-                            );
-                          })}
-                          {mySoundscapes.map((s) => {
-                            const selected = pendingSoundtrackId === s.id;
-                            const downloading = mySoundscapeDownloadingIds.has(s.id);
-                            return (
-                              <li key={s.id}>
-                                <button
-                                  type="button"
-                                  title={s.name}
-                                  onClick={() => {
-                                    setPendingSoundtrackId(s.id);
-                                    if (!s.media_url.trim()) {
-                                      stopMediaPreview();
-                                      setSoundscapePulseId(null);
-                                      return;
-                                    }
-                                    setSoundscapePulseId(s.id);
-                                    startMediaPreview(s.media_url, true);
-                                  }}
-                                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
-                                    selected
-                                      ? "font-medium text-zinc-50"
-                                      : "text-zinc-500"
-                                  }`}
-                                >
-                                  <span className="min-w-0 flex-1 truncate">{s.name}</span>
-                                  {downloading ? (
-                                    <MySoundDownloadSpinner />
-                                  ) : (
-                                    soundscapePulseId === s.id && (
-                                      <span
-                                        className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
-                                        aria-hidden
-                                      />
-                                    )
-                                  )}
-                                </button>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      
-                      </div>
-                    ) : (
-                      <div className="min-h-0 flex-1" aria-hidden />
-                    )}
+                    <div className="flex min-h-0 flex-1 flex-col gap-1">
+                      <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
+                        {soundscapeListTab !== "none" && (
+                          <>
+                            {librarySoundscapes
+                              .filter((s) => s.tab === soundscapeListTab)
+                              .map((s) => {
+                                const selected = pendingSoundtrackId === s.id;
+                                return (
+                                  <li key={s.id}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPendingSoundtrackId(s.id);
+                                        setSoundscapePulseId(s.id);
+                                        startMediaPreview(s.media_url, true);
+                                      }}
+                                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
+                                        selected
+                                          ? "font-medium text-zinc-50"
+                                          : "text-zinc-500"
+                                      }`}
+                                    >
+                                      <span className="min-w-0 flex-1">{s.name}</span>
+                                      {soundscapePulseId === s.id && (
+                                        <span
+                                          className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
+                                          aria-hidden
+                                        />
+                                      )}
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            {soundscapeListTab === "ambient" &&
+                              mySoundscapes.map((s) => {
+                                const selected = pendingSoundtrackId === s.id;
+                                const downloading = mySoundscapeDownloadingIds.has(s.id);
+                                return (
+                                  <li key={s.id}>
+                                    <button
+                                      type="button"
+                                      title={s.name}
+                                      onClick={() => {
+                                        setPendingSoundtrackId(s.id);
+                                        if (!s.media_url.trim()) {
+                                          stopMediaPreview();
+                                          setSoundscapePulseId(null);
+                                          return;
+                                        }
+                                        setSoundscapePulseId(s.id);
+                                        startMediaPreview(s.media_url, true);
+                                      }}
+                                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
+                                        selected
+                                          ? "font-medium text-zinc-50"
+                                          : "text-zinc-500"
+                                      }`}
+                                    >
+                                      <span className="min-w-0 flex-1 truncate">{s.name}</span>
+                                      {downloading ? (
+                                        <MySoundDownloadSpinner />
+                                      ) : (
+                                        soundscapePulseId === s.id && (
+                                          <span
+                                            className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
+                                            aria-hidden
+                                          />
+                                        )
+                                      )}
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                          </>
+                        )}
+                      </ul>
+                    </div>
                   </div>
                   <ModalSaveFooter onSave={saveSoundtrackModal} />
                 </>

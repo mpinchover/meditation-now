@@ -14,6 +14,8 @@ export type ApiSoundscape = {
   id: string;
   name: string;
   media_url: string;
+  /** Server category: e.g. drone, ohm, nature, temple_bells, binaural, bowls, sleep */
+  category?: string;
 };
 
 export type ApiCustomSoundscape = {
