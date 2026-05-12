@@ -552,6 +552,9 @@ export default function Home() {
   const [hours, setHours] = useState(0);
   const [minutes, setMinutes] = useState(15);
 
+  // TODO: replace with real meditation history once persisted.
+  const meditationDaysCount = 5;
+
   const [librarySoundscapes, setLibrarySoundscapes] = useState<
     CatalogSoundscape[]
   >([]);
@@ -991,33 +994,47 @@ export default function Home() {
           </button>
         </div>
       ) : (
-        <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-6 px-5 py-10">
-          <section className="flex shrink-0 flex-col gap-3">
-            <FieldRow
-              label="Duration"
-              value={formatDuration(hours, minutes)}
-              onOpen={openDurationModal}
-            />
-            <FieldRow
-              label="Soundscape"
-              value={soundtrackTitle}
-              onOpen={openSoundtrackModal}
-            />
-            <FieldRow
-              label="Bells"
-              value={startingBellSummary}
-              onOpen={openBellsModal}
-            />
+        <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-24 px-5 py-10">
+          <section
+            className="flex shrink-0 items-center justify-center gap-1.5"
+            aria-label="Meditation days"
+          >
+            {Array.from({ length: meditationDaysCount }).map((_, i) => (
+              <span
+                key={i}
+                className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+              />
+            ))}
           </section>
 
-          <div className="shrink-0 pt-2">
-            <button
-              type="button"
-              onClick={() => void beginSession()}
-              className="w-full rounded-2xl border border-zinc-600 bg-zinc-800 py-4 text-center text-base font-semibold text-zinc-50 shadow-lg shadow-black/45 transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99]"
-            >
-              Begin
-            </button>
+          <div className="flex shrink-0 flex-col gap-6">
+            <section className="flex shrink-0 flex-col gap-3">
+              <FieldRow
+                label="Duration"
+                value={formatDuration(hours, minutes)}
+                onOpen={openDurationModal}
+              />
+              <FieldRow
+                label="Soundscape"
+                value={soundtrackTitle}
+                onOpen={openSoundtrackModal}
+              />
+              <FieldRow
+                label="Bells"
+                value={startingBellSummary}
+                onOpen={openBellsModal}
+              />
+            </section>
+
+            <div className="shrink-0 pt-2">
+              <button
+                type="button"
+                onClick={() => void beginSession()}
+                className="w-full rounded-2xl border border-zinc-600 bg-zinc-800 py-4 text-center text-base font-semibold text-zinc-50 shadow-lg shadow-black/45 transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99]"
+              >
+                Begin
+              </button>
+            </div>
           </div>
         </main>
       )}
