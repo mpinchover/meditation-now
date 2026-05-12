@@ -1,11 +1,11 @@
-import type { SoundscapeListTab } from "@/lib/soundscape-categories";
+import type { SoundscapeLibraryCategory } from "@/lib/soundscape-categories";
 
 export type CatalogSoundscape = {
   id: string;
   name: string;
   media_url: string;
-  /** Which Soundscape modal tab lists this item (from API `category`). */
-  tab: SoundscapeListTab;
+  /** From API `category` for library items; informational only in the UI. */
+  tab: SoundscapeLibraryCategory;
 };
 
 export type CatalogBellSound = {

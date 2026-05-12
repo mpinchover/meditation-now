@@ -1,5 +1,7 @@
-export type SoundscapeListTab =
-  | "none"
+export type SoundscapeListTab = "none" | "my_sounds" | "library";
+
+/** API `soundscapes[].category` — used for catalog metadata only; the Library tab lists all items. */
+export type SoundscapeLibraryCategory =
   | "ambient"
   | "ohm"
   | "temple_bells"
@@ -10,17 +12,14 @@ export type SoundscapeListTab =
 
 export const SOUNDSCAPE_CATEGORY_TABS: { id: SoundscapeListTab; label: string }[] = [
   { id: "none", label: "None" },
-  { id: "ambient", label: "Ambient" },
-  { id: "ohm", label: "Ohm" },
-  { id: "temple_bells", label: "Temple bells" },
-  { id: "binaural", label: "Binaural" },
-  { id: "drones", label: "Drones" },
-  { id: "bowls", label: "Bowls" },
-  { id: "sleep", label: "Sleep" },
+  { id: "my_sounds", label: "My Sounds" },
+  { id: "library", label: "Library" },
 ];
 
-/** Maps API `soundscapes[].category` to the UI tab id. */
-export function apiSoundscapeCategoryToTab(raw: string | undefined): SoundscapeListTab {
+/** Maps API `soundscapes[].category` to a library category id. */
+export function apiSoundscapeCategoryToLibraryCategory(
+  raw: string | undefined,
+): SoundscapeLibraryCategory {
   const c = (raw ?? "")
     .trim()
     .toLowerCase()
