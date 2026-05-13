@@ -17,7 +17,9 @@ import { BellsCategoryOverlayScreen } from "@/components/meditation/overlays/bel
 import { BellsMenuOverlayScreen } from "@/components/meditation/overlays/bells-menu-overlay-screen";
 import { DurationOverlayScreen } from "@/components/meditation/overlays/duration-overlay-screen";
 import { SoundscapeAddFilesOverlayScreen } from "@/components/meditation/overlays/soundscape-add-files-overlay-screen";
+import { LoginOverlayScreen } from "@/components/meditation/overlays/login-overlay-screen";
 import { SoundscapePickerOverlayScreen } from "@/components/meditation/overlays/soundscape-picker-overlay-screen";
+import { MenuGlyph } from "@/components/meditation/menu-glyph";
 import { catalogFromApiCustom } from "@/components/meditation/catalog";
 import { FieldRow } from "@/components/meditation/field-row";
 import { formatDuration } from "@/components/meditation/format";
@@ -534,6 +536,15 @@ export default function Home() {
       <p className="fixed left-4 top-4 z-20 text-sm font-medium tracking-wide text-zinc-500">
         Callysto
       </p>
+      <button
+        type="button"
+        onClick={() => setOpenModal("login")}
+        className="fixed right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900/90 text-zinc-400 shadow-lg shadow-black/30 transition hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:scale-[0.98]"
+        aria-label="Open menu"
+        aria-haspopup="dialog"
+      >
+        <MenuGlyph className="size-5" />
+      </button>
       {activeSession ? (
         <MeditationSession
           config={activeSession}
@@ -600,7 +611,13 @@ export default function Home() {
         </main>
       )}
 
-      {openModal && !soundsLoading && !soundsError && (
+      {openModal === "login" && (
+        <ModalOverlayShell onDismiss={() => setOpenModal(null)}>
+          <LoginOverlayScreen />
+        </ModalOverlayShell>
+      )}
+
+      {openModal && openModal !== "login" && !soundsLoading && !soundsError && (
         <ModalOverlayShell onDismiss={() => setOpenModal(null)}>
           {openModal === "duration" && (
             <DurationOverlayScreen

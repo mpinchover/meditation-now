@@ -1,6 +1,6 @@
 import type { BellCategory } from "@/lib/meditation-mocks";
 
-export type ModalId = "duration" | "soundtrack" | "bells" | null;
+export type ModalId = "duration" | "soundtrack" | "bells" | "login" | null;
 
 export type BellsUiStep = "menu" | BellCategory;
 
