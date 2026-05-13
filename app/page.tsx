@@ -245,26 +245,6 @@ export default function Home() {
     }
   }, [mySoundsEditingId, mySoundsEditingName, refreshSoundsQuiet, cancelMySoundsRowEdit]);
 
-  const handleMySoundsConfirmDelete = useCallback(
-    async (id: string) => {
-      setMySoundsEditBusy(true);
-      setMySoundsEditError(null);
-      try {
-        await deleteCustomSoundscape(id);
-        await refreshSoundsQuiet();
-        setMySoundsDeleteConfirmId(null);
-        setMySoundsEditMenuId(null);
-        setMySoundsEditingId(null);
-        setMySoundsEditingName("");
-      } catch (e) {
-        setMySoundsEditError(e instanceof Error ? e.message : "Could not remove");
-      } finally {
-        setMySoundsEditBusy(false);
-      }
-    },
-    [refreshSoundsQuiet],
-  );
-
   const loadSounds = useCallback(async () => {
     setSoundsLoading(true);
     setSoundsError(null);
@@ -300,6 +280,31 @@ export default function Home() {
       void audio.play().catch(() => {});
     },
     [stopMediaPreview],
+  );
+
+  const handleMySoundsConfirmDelete = useCallback(
+    async (id: string) => {
+      setMySoundsEditBusy(true);
+      setMySoundsEditError(null);
+      try {
+        await deleteCustomSoundscape(id);
+        await refreshSoundsQuiet();
+        if (soundscapePulseId === id) {
+          stopMediaPreview();
+          setSoundscapePulseId(null);
+        }
+        setPendingSoundtrackId((cur) => (cur === id ? null : cur));
+        setMySoundsDeleteConfirmId(null);
+        setMySoundsEditMenuId(null);
+        setMySoundsEditingId(null);
+        setMySoundsEditingName("");
+      } catch (e) {
+        setMySoundsEditError(e instanceof Error ? e.message : "Could not remove");
+      } finally {
+        setMySoundsEditBusy(false);
+      }
+    },
+    [refreshSoundsQuiet, soundscapePulseId, stopMediaPreview],
   );
 
   useEffect(() => {

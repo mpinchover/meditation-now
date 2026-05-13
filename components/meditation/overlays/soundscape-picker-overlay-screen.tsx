@@ -67,10 +67,7 @@ export function SoundscapePickerOverlayScreen(props: {
             {props.mySoundscapes.map((s) => {
               const selected = props.pendingSoundtrackId === s.id;
               return (
-                <li
-                  key={s.id}
-                  className="rounded-lg transition hover:bg-white/[0.035]"
-                >
+                <li key={s.id} className="overflow-hidden rounded-lg">
                   {props.mySoundsEditingId === s.id ? (
                     <div className="px-3 py-2.5">
                       <input
@@ -114,7 +111,13 @@ export function SoundscapePickerOverlayScreen(props: {
                     </div>
                   ) : (
                     <>
-                      <div className="flex items-center gap-2 px-3 py-2.5">
+                      <div
+                        className={`flex min-h-[2.75rem] w-full items-stretch rounded-lg transition-colors ${
+                          selected
+                            ? "bg-white/[0.08]"
+                            : "hover:bg-white/[0.045] active:bg-white/[0.06]"
+                        }`}
+                      >
                         <button
                           type="button"
                           title={s.name}
@@ -128,13 +131,19 @@ export function SoundscapePickerOverlayScreen(props: {
                             props.onSoundscapePulseChange(s.id);
                             props.onStartPreview(s.media_url, true);
                           }}
-                          className={`min-w-0 flex-1 truncate text-left text-sm transition active:opacity-90 ${
-                            selected ? "font-medium text-zinc-50" : "text-zinc-500"
+                          className={`flex min-h-0 min-w-0 flex-1 items-center truncate bg-transparent px-3 py-2.5 text-left text-sm transition active:opacity-90 ${
+                            selected
+                              ? "font-medium text-zinc-50"
+                              : "text-zinc-500"
                           }`}
                         >
                           {s.name}
                         </button>
-                        <div className="flex shrink-0 items-center gap-1.5">
+                        <div
+                          className={`flex shrink-0 items-center gap-1.5 self-stretch px-2.5 ${
+                            selected ? "text-zinc-300" : "text-zinc-500"
+                          }`}
+                        >
                           {props.soundscapePulseId === s.id ? (
                             <span
                               className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
@@ -146,7 +155,7 @@ export function SoundscapePickerOverlayScreen(props: {
                             aria-label={`Edit ${s.name}`}
                             disabled={props.mySoundsEditBusy}
                             onClick={() => props.onToggleEditMenu(s.id)}
-                            className="shrink-0 rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40"
+                            className="shrink-0 rounded-lg p-1.5 transition hover:text-zinc-100 disabled:opacity-40"
                           >
                             <EditGlyph className="size-5" />
                           </button>
