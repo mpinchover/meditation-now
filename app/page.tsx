@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  deleteCustomSoundscape,
   fetchMeditationSounds,
+  patchCustomSoundscapeName,
+  postUploadAudioFiles,
   type ApiCustomSoundscape,
-  type ApiSoundscape,
   type MeditationSoundsResponse,
 } from "@/lib/meditation-sounds-api";
 import {
@@ -12,18 +14,18 @@ import {
   type CatalogBellSound,
   type CatalogSoundscape,
 } from "@/lib/meditation-mocks";
-import {
-  SOUNDSCAPE_CATEGORY_TABS,
-  apiSoundscapeCategoryToLibraryCategory,
-  displayNameForApiSoundscape,
-  type SoundscapeListTab,
-} from "@/lib/soundscape-categories";
-
 type ModalId = "duration" | "soundtrack" | "bells" | null;
 
 type BellsUiStep = "menu" | BellCategory;
 
 type MySoundsUiStep = "main" | "add_files";
+
+type AddSoundUploadRow = {
+  id: string;
+  name: string;
+  uploading: boolean;
+  error: string | null;
+};
 
 const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
   { id: "starting", label: "Starting" },
@@ -33,37 +35,14 @@ const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
 
 function catalogFromApiCustom(c: ApiCustomSoundscape): CatalogSoundscape {
   const url = c.media_url;
-  const ready =
-    c.status === "success" &&
-    typeof url === "string" &&
-    url.length > 0;
+  const mediaUrl = typeof url === "string" && url.trim().length > 0 ? url : "";
   const label = c.name?.trim();
   return {
     id: c.id,
     name: label && label.length > 0 ? label : c.link,
-    media_url: ready ? url : "",
+    media_url: mediaUrl,
     tab: "ambient",
   };
-}
-
-function catalogFromApiSoundscape(s: ApiSoundscape): CatalogSoundscape {
-  return {
-    id: s.id,
-    name: displayNameForApiSoundscape(s),
-    media_url: s.media_url,
-    tab: apiSoundscapeCategoryToLibraryCategory(s.category),
-  };
-}
-
-function soundscapeListTabForSelection(
-  id: string | null,
-  library: CatalogSoundscape[],
-  customs: CatalogSoundscape[],
-): SoundscapeListTab {
-  if (id === null) return "none";
-  if (library.some((s) => s.id === id)) return "library";
-  if (customs.some((s) => s.id === id)) return "my_sounds";
-  return "library";
 }
 
 function formatDuration(hours: number, minutes: number): string {
@@ -100,14 +79,16 @@ function playBellOnce(url: string) {
   void a.play().catch(() => {});
 }
 
-function isProbablyAudioFile(file: File): boolean {
-  if (file.type.startsWith("audio/")) return true;
+/** Matches server `/upload-audio`: MP3 and WAV only. */
+function isUploadableSoundFile(file: File): boolean {
   const ext = file.name.split(".").pop()?.toLowerCase();
+  if (ext === "mp3" || ext === "wav") return true;
+  const t = file.type.toLowerCase();
   return (
-    ext != null &&
-    ["mp3", "wav", "ogg", "m4a", "aac", "flac", "opus", "aiff", "aif", "wma"].includes(
-      ext,
-    )
+    t === "audio/mpeg" ||
+    t === "audio/wav" ||
+    t === "audio/wave" ||
+    t === "audio/x-wav"
   );
 }
 
@@ -146,18 +127,21 @@ function PlayGlyph(props: { className?: string }) {
   );
 }
 
-function MySoundDownloadSpinner() {
+function EditGlyph(props: { className?: string }) {
   return (
-    <span
-      className="inline-flex size-4 shrink-0 items-center justify-center"
-      role="status"
-      aria-label="Downloading"
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={props.className}
+      aria-hidden
     >
-      <span
-        className="size-3.5 shrink-0 rounded-full border-2 border-zinc-600 border-t-zinc-300 animate-spin"
-        aria-hidden
-      />
-    </span>
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
   );
 }
 
@@ -475,9 +459,6 @@ export default function Home() {
   // TODO: replace with real meditation history once persisted.
   const meditationDaysCount = 5;
 
-  const [librarySoundscapes, setLibrarySoundscapes] = useState<
-    CatalogSoundscape[]
-  >([]);
   const [bellsCatalog, setBellsCatalog] = useState<CatalogBellSound[]>([]);
   const [soundsLoading, setSoundsLoading] = useState(true);
   const [soundsError, setSoundsError] = useState<string | null>(null);
@@ -513,17 +494,24 @@ export default function Home() {
 
   /** Row id whose preview/dot was activated by user tap this session (not initial selection). */
   const [soundscapePulseId, setSoundscapePulseId] = useState<string | null>(null);
-  const [soundscapeListTab, setSoundscapeListTab] =
-    useState<SoundscapeListTab>("none");
   const [mySoundscapes, setMySoundscapes] = useState<CatalogSoundscape[]>([]);
-  const [mySoundscapeDownloadingIds, setMySoundscapeDownloadingIds] = useState<
-    Set<string>
-  >(() => new Set());
   const [mySoundsUiStep, setMySoundsUiStep] = useState<MySoundsUiStep>("main");
-  const [droppedAudioDraftFiles, setDroppedAudioDraftFiles] = useState<File[]>([]);
+  const [addSoundRows, setAddSoundRows] = useState<AddSoundUploadRow[]>([]);
+  const [addSoundUploadError, setAddSoundUploadError] = useState<string | null>(null);
   const [addSoundDropActive, setAddSoundDropActive] = useState(false);
+  const [mySoundsEditMenuId, setMySoundsEditMenuId] = useState<string | null>(null);
+  const [mySoundsEditingId, setMySoundsEditingId] = useState<string | null>(null);
+  const [mySoundsEditingName, setMySoundsEditingName] = useState("");
+  const [mySoundsDeleteConfirmId, setMySoundsDeleteConfirmId] = useState<string | null>(
+    null,
+  );
+  const [mySoundsEditBusy, setMySoundsEditBusy] = useState(false);
+  const [mySoundsEditError, setMySoundsEditError] = useState<string | null>(null);
   const addAudioFilesInputRef = useRef<HTMLInputElement>(null);
   const addSoundDropZoneRef = useRef<HTMLDivElement>(null);
+  const refreshSoundsQuietDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [bellPulseId, setBellPulseId] = useState<string | null>(null);
 
   const [bellsUiStep, setBellsUiStep] = useState<BellsUiStep>("menu");
@@ -592,9 +580,7 @@ export default function Home() {
   const soundtrackTitle =
     soundtrackId === null
       ? "None"
-      : librarySoundscapes.find((s) => s.id === soundtrackId)?.name ??
-        mySoundscapes.find((s) => s.id === soundtrackId)?.name ??
-        "None";
+      : mySoundscapes.find((s) => s.id === soundtrackId)?.name ?? "None";
 
   const startingBellSummary =
     startingBellId === null
@@ -602,29 +588,14 @@ export default function Home() {
       : bellsCatalog.find((b) => b.id === startingBellId)?.name ?? "None";
 
   const applySoundsResponse = useCallback((data: MeditationSoundsResponse) => {
-    setLibrarySoundscapes(data.soundscapes.map(catalogFromApiSoundscape));
     setBellsCatalog(data.bells);
 
     setMySoundscapes(data.custom_soundscapes.map(catalogFromApiCustom));
 
-    setMySoundscapeDownloadingIds(() => {
-      const next = new Set<string>();
-      for (const c of data.custom_soundscapes) {
-        const ready =
-          c.status === "success" &&
-          typeof c.media_url === "string" &&
-          c.media_url.length > 0;
-        if (!ready) next.add(c.id);
-      }
-      return next;
-    });
-
     setSoundtrackId((cur) => {
-      const first = data.soundscapes[0]?.id ?? null;
-      if (cur === null) return first;
-      if (data.soundscapes.some((s) => s.id === cur)) return cur;
+      if (cur === null) return null;
       if (data.custom_soundscapes.some((cs) => cs.id === cur)) return cur;
-      return first;
+      return null;
     });
 
     const firstBellId = data.bells[0]?.id ?? null;
@@ -638,6 +609,89 @@ export default function Home() {
       cur !== null && !data.bells.some((b) => b.id === cur) ? null : cur,
     );
   }, []);
+
+  const refreshSoundsQuiet = useCallback(async () => {
+    try {
+      applySoundsResponse(await fetchMeditationSounds());
+    } catch {
+      /* keep existing catalog */
+    }
+  }, [applySoundsResponse]);
+
+  const scheduleRefreshSoundsQuiet = useCallback(() => {
+    if (refreshSoundsQuietDebounceRef.current) {
+      clearTimeout(refreshSoundsQuietDebounceRef.current);
+    }
+    refreshSoundsQuietDebounceRef.current = setTimeout(() => {
+      refreshSoundsQuietDebounceRef.current = null;
+      void refreshSoundsQuiet();
+    }, 300);
+  }, [refreshSoundsQuiet]);
+
+  const flushRefreshSoundsQuiet = useCallback(() => {
+    if (refreshSoundsQuietDebounceRef.current) {
+      clearTimeout(refreshSoundsQuietDebounceRef.current);
+      refreshSoundsQuietDebounceRef.current = null;
+    }
+    void refreshSoundsQuiet();
+  }, [refreshSoundsQuiet]);
+
+  const finishAddSoundFilesStep = useCallback(() => {
+    flushRefreshSoundsQuiet();
+    setAddSoundRows([]);
+    setAddSoundUploadError(null);
+    setAddSoundDropActive(false);
+    setMySoundsUiStep("main");
+    setMySoundsEditMenuId(null);
+    setMySoundsEditingId(null);
+    setMySoundsEditingName("");
+    setMySoundsDeleteConfirmId(null);
+    setMySoundsEditError(null);
+  }, [flushRefreshSoundsQuiet]);
+
+  const cancelMySoundsRowEdit = useCallback(() => {
+    setMySoundsEditingId(null);
+    setMySoundsEditingName("");
+    setMySoundsEditError(null);
+  }, []);
+
+  const handleMySoundsSaveRename = useCallback(async () => {
+    const id = mySoundsEditingId;
+    const trimmed = mySoundsEditingName.trim();
+    if (!id || !trimmed) return;
+    setMySoundsEditBusy(true);
+    setMySoundsEditError(null);
+    try {
+      await patchCustomSoundscapeName(id, trimmed);
+      await refreshSoundsQuiet();
+      cancelMySoundsRowEdit();
+      setMySoundsEditMenuId(null);
+    } catch (e) {
+      setMySoundsEditError(e instanceof Error ? e.message : "Could not rename");
+    } finally {
+      setMySoundsEditBusy(false);
+    }
+  }, [mySoundsEditingId, mySoundsEditingName, refreshSoundsQuiet, cancelMySoundsRowEdit]);
+
+  const handleMySoundsConfirmDelete = useCallback(
+    async (id: string) => {
+      setMySoundsEditBusy(true);
+      setMySoundsEditError(null);
+      try {
+        await deleteCustomSoundscape(id);
+        await refreshSoundsQuiet();
+        setMySoundsDeleteConfirmId(null);
+        setMySoundsEditMenuId(null);
+        setMySoundsEditingId(null);
+        setMySoundsEditingName("");
+      } catch (e) {
+        setMySoundsEditError(e instanceof Error ? e.message : "Could not remove");
+      } finally {
+        setMySoundsEditBusy(false);
+      }
+    },
+    [refreshSoundsQuiet],
+  );
 
   const loadSounds = useCallback(async () => {
     setSoundsLoading(true);
@@ -681,13 +735,29 @@ export default function Home() {
   }, [stopMediaPreview]);
 
   useEffect(() => {
+    return () => {
+      if (refreshSoundsQuietDebounceRef.current) {
+        clearTimeout(refreshSoundsQuietDebounceRef.current);
+        refreshSoundsQuietDebounceRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!openModal) {
       stopMediaPreview();
       setSoundscapePulseId(null);
       setBellPulseId(null);
       setMySoundsUiStep("main");
-      setDroppedAudioDraftFiles([]);
+      setAddSoundRows([]);
+      setAddSoundUploadError(null);
       setAddSoundDropActive(false);
+      setMySoundsEditMenuId(null);
+      setMySoundsEditingId(null);
+      setMySoundsEditingName("");
+      setMySoundsDeleteConfirmId(null);
+      setMySoundsEditBusy(false);
+      setMySoundsEditError(null);
     }
   }, [openModal, stopMediaPreview]);
 
@@ -726,20 +796,76 @@ export default function Home() {
   function openSoundtrackModal() {
     setPendingSoundtrackId(soundtrackId);
     setSoundscapePulseId(null);
-    setSoundscapeListTab(
-      soundscapeListTabForSelection(soundtrackId, librarySoundscapes, mySoundscapes),
-    );
     setMySoundsUiStep("main");
-    setDroppedAudioDraftFiles([]);
+    setAddSoundRows([]);
+    setAddSoundUploadError(null);
     setAddSoundDropActive(false);
+    setMySoundsEditMenuId(null);
+    setMySoundsEditingId(null);
+    setMySoundsEditingName("");
+    setMySoundsDeleteConfirmId(null);
+    setMySoundsEditError(null);
     setOpenModal("soundtrack");
   }
 
-  function appendDroppedAudioFiles(fileList: FileList | File[]) {
-    const next = Array.from(fileList).filter(isProbablyAudioFile);
-    if (next.length === 0) return;
-    setDroppedAudioDraftFiles((prev) => [...prev, ...next]);
-  }
+  const handleAddSoundFiles = useCallback(
+    (fileList: FileList | File[]) => {
+      const files = Array.from(fileList).filter(isUploadableSoundFile);
+      if (files.length === 0) {
+        setAddSoundUploadError("Only MP3 and WAV files are accepted.");
+        return;
+      }
+      setAddSoundUploadError(null);
+
+      const pairs = files.map((file) => ({ id: crypto.randomUUID(), file }));
+
+      setAddSoundRows((prev) => [
+        ...prev,
+        ...pairs.map(({ id, file }) => ({
+          id,
+          name: file.name,
+          uploading: true,
+          error: null as string | null,
+        })),
+      ]);
+
+      for (const { id, file } of pairs) {
+        void (async () => {
+          try {
+            const { created, errors } = await postUploadAudioFiles([file]);
+            scheduleRefreshSoundsQuiet();
+            const rowErr = errors.find((e) => e.filename === file.name);
+            const ok = created.length > 0;
+            setAddSoundRows((prev) =>
+              prev.map((r) =>
+                r.id !== id
+                  ? r
+                  : {
+                      ...r,
+                      uploading: false,
+                      name: created[0]?.name ?? r.name,
+                      error: rowErr?.error ?? (!ok ? "Upload failed" : null),
+                    },
+              ),
+            );
+          } catch (e) {
+            setAddSoundRows((prev) =>
+              prev.map((r) =>
+                r.id !== id
+                  ? r
+                  : {
+                      ...r,
+                      uploading: false,
+                      error: e instanceof Error ? e.message : "Upload failed.",
+                    },
+              ),
+            );
+          }
+        })();
+      }
+    },
+    [scheduleRefreshSoundsQuiet],
+  );
 
   function openBellsModal() {
     setBellsUiStep("menu");
@@ -782,16 +908,14 @@ export default function Home() {
         return;
       }
       if (openModal === "soundtrack" && mySoundsUiStep === "add_files") {
-        setMySoundsUiStep("main");
-        setDroppedAudioDraftFiles([]);
-        setAddSoundDropActive(false);
+        finishAddSoundFilesStep();
         return;
       }
       setOpenModal(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openModal, bellsUiStep, mySoundsUiStep]);
+  }, [openModal, bellsUiStep, mySoundsUiStep, finishAddSoundFilesStep]);
 
   useEffect(() => {
     document.body.style.overflow = openModal ? "hidden" : "";
@@ -811,9 +935,7 @@ export default function Home() {
     const soundtrackMediaUrl =
       soundtrackId === null
         ? null
-        : mySoundscapes.find((s) => s.id === soundtrackId)?.media_url ||
-          librarySoundscapes.find((s) => s.id === soundtrackId)?.media_url ||
-          null;
+        : mySoundscapes.find((s) => s.id === soundtrackId)?.media_url ?? null;
     setActiveSession({
       totalSeconds,
       soundtrackId,
@@ -956,28 +1078,23 @@ export default function Home() {
               <>
                 <button
                   type="button"
-                  className="absolute left-3 top-3 z-10 flex h-10 items-center gap-0.5 rounded-full px-2 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-50"
-                  aria-label="Back"
-                  onClick={() => {
-                    setMySoundsUiStep("main");
-                    setDroppedAudioDraftFiles([]);
-                    setAddSoundDropActive(false);
-                  }}
+                  className="absolute left-3 top-3 z-10 flex h-10 items-center gap-0.5 rounded-full px-3 text-sm font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-50"
+                  aria-label="Done"
+                  onClick={finishAddSoundFilesStep}
                 >
-                  <span className="text-lg leading-none">‹</span>
-                  <span>Back</span>
+                  Done
                 </button>
 
                 <div className="flex min-h-0 flex-1 flex-col px-4 pb-3 pt-14">
                   <input
                     ref={addAudioFilesInputRef}
                     type="file"
-                    accept="audio/*,.mp3,.wav,.ogg,.m4a,.aac,.flac,.opus,.aiff,.aif,.wma"
+                    accept=".mp3,.wav,audio/mpeg,audio/wav,audio/wave,audio/x-wav"
                     multiple
                     className="hidden"
                     onChange={(e) => {
                       const list = e.target.files;
-                      if (list?.length) appendDroppedAudioFiles(list);
+                      if (list?.length) handleAddSoundFiles(list);
                       e.target.value = "";
                     }}
                   />
@@ -985,7 +1102,7 @@ export default function Home() {
                   <div
                     ref={addSoundDropZoneRef}
                     role="region"
-                    aria-label="Add a sound — drop audio files"
+                    aria-label="Addsounds — drop MP3 or WAV files"
                     onDragEnter={(e) => {
                       e.preventDefault();
                       setAddSoundDropActive(true);
@@ -1009,7 +1126,7 @@ export default function Home() {
                       e.preventDefault();
                       setAddSoundDropActive(false);
                       if (e.dataTransfer.files?.length) {
-                        appendDroppedAudioFiles(e.dataTransfer.files);
+                        handleAddSoundFiles(e.dataTransfer.files);
                       }
                     }}
                     className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl transition ${
@@ -1020,22 +1137,49 @@ export default function Home() {
                   >
                     <div className="shrink-0 border-b border-zinc-800/50 px-4 py-3 text-center">
                       <p className="mt-2 text-sm font-medium text-zinc-300">
-                        Drop audio files here
+                        Drop MP3 or WAV files here
                       </p>
+                      {addSoundUploadError && (
+                        <p className="mt-2 text-center text-xs leading-snug text-red-400/90">
+                          {addSoundUploadError}
+                        </p>
+                      )}
                     </div>
 
                     <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-3 py-2">
-                      {droppedAudioDraftFiles.length === 0 ? (
+                      {addSoundRows.length === 0 ? (
                         <li className="list-none py-8 text-center text-sm text-zinc-600">
                           No files yet
                         </li>
                       ) : (
-                        droppedAudioDraftFiles.map((file, index) => (
+                        addSoundRows.map((row) => (
                           <li
-                            key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-                            className="truncate px-3 py-2 text-sm text-zinc-300"
+                            key={row.id}
+                            className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-300"
                           >
-                            {file.name}
+                            <span className="min-w-0 flex-1 truncate" title={row.name}>
+                              {row.name}
+                            </span>
+                            {row.uploading && (
+                              <span
+                                className="inline-flex size-4 shrink-0 items-center justify-center"
+                                role="status"
+                                aria-label={`Uploading ${row.name}`}
+                              >
+                                <span
+                                  className="size-3.5 shrink-0 rounded-full border-2 border-zinc-600 border-t-zinc-300 animate-spin"
+                                  aria-hidden
+                                />
+                              </span>
+                            )}
+                            {row.error && (
+                              <span
+                                className="max-w-[45%] shrink-0 truncate text-xs text-red-400/90"
+                                title={row.error}
+                              >
+                                {row.error}
+                              </span>
+                            )}
                           </li>
                         ))
                       )}
@@ -1061,127 +1205,210 @@ export default function Home() {
                   <h2 className="mb-3 shrink-0 text-center text-lg font-semibold text-zinc-50">
                     Soundscape
                   </h2>
-                  <div className="mb-3 flex shrink-0 flex-wrap gap-x-1.5 gap-y-2">
-                    {SOUNDSCAPE_CATEGORY_TABS.map(({ id, label }) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => {
-                          setSoundscapeListTab(id);
-                          stopMediaPreview();
-                          setSoundscapePulseId(null);
-                          if (id !== "my_sounds") {
-                            setMySoundsUiStep("main");
-                            setDroppedAudioDraftFiles([]);
-                            setAddSoundDropActive(false);
-                          }
-                          if (id === "none") {
-                            setPendingSoundtrackId(null);
-                          }
-                        }}
-                        className={`shrink-0 whitespace-nowrap rounded-full px-3 py-2 text-xs font-medium transition sm:text-sm ${
-                          soundscapeListTab === id
-                            ? "bg-white/[0.08] text-zinc-50 ring-1 ring-zinc-700"
-                            : "text-zinc-500 hover:bg-white/[0.035] hover:text-zinc-300"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
                   <div className="flex min-h-0 flex-1 flex-col gap-1">
+                    {mySoundsEditError && (
+                      <p className="shrink-0 px-3 text-xs leading-snug text-red-400/90">
+                        {mySoundsEditError}
+                      </p>
+                    )}
                     <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
-                      {soundscapeListTab === "library" &&
-                        librarySoundscapes.map((s) => {
-                          const selected = pendingSoundtrackId === s.id;
-                          return (
-                            <li key={s.id}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPendingSoundtrackId(s.id);
-                                  setSoundscapePulseId(s.id);
-                                  startMediaPreview(s.media_url, true);
-                                }}
-                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
-                                  selected
-                                    ? "font-medium text-zinc-50"
-                                    : "text-zinc-500"
-                                }`}
-                              >
-                                <span className="min-w-0 flex-1">{s.name}</span>
-                                {soundscapePulseId === s.id && (
-                                  <span
-                                    className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
-                                    aria-hidden
-                                  />
-                                )}
-                              </button>
-                            </li>
-                          );
-                        })}
-                      {soundscapeListTab === "my_sounds" && mySoundscapes.length === 0 && (
+                      <li key="__none">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPendingSoundtrackId(null);
+                            stopMediaPreview();
+                            setSoundscapePulseId(null);
+                          }}
+                          className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
+                            pendingSoundtrackId === null
+                              ? "font-medium text-zinc-50"
+                              : "text-zinc-500"
+                          }`}
+                        >
+                          <span className="min-w-0 flex-1">None</span>
+                        </button>
+                      </li>
+                      {mySoundscapes.length === 0 && (
                         <li className="list-none px-3 py-8 text-center text-sm text-zinc-500">
-                          No custom sounds yet. Add one below.
+                          No custom sounds yet.
                         </li>
                       )}
-                      {soundscapeListTab === "my_sounds" &&
-                        mySoundscapes.map((s) => {
+                      {mySoundscapes.map((s) => {
                           const selected = pendingSoundtrackId === s.id;
-                          const downloading = mySoundscapeDownloadingIds.has(s.id);
                           return (
-                            <li key={s.id}>
-                              <button
-                                type="button"
-                                title={s.name}
-                                onClick={() => {
-                                  setPendingSoundtrackId(s.id);
-                                  if (!s.media_url.trim()) {
-                                    stopMediaPreview();
-                                    setSoundscapePulseId(null);
-                                    return;
-                                  }
-                                  setSoundscapePulseId(s.id);
-                                  startMediaPreview(s.media_url, true);
-                                }}
-                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition hover:bg-white/[0.045] active:bg-white/[0.06] ${
-                                  selected
-                                    ? "font-medium text-zinc-50"
-                                    : "text-zinc-500"
-                                }`}
-                              >
-                                <span className="min-w-0 flex-1 truncate">{s.name}</span>
-                                {downloading ? (
-                                  <MySoundDownloadSpinner />
-                                ) : (
-                                  soundscapePulseId === s.id && (
-                                    <span
-                                      className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
-                                      aria-hidden
-                                    />
-                                  )
-                                )}
-                              </button>
+                            <li
+                              key={s.id}
+                              className="rounded-lg transition hover:bg-white/[0.035]"
+                            >
+                              {mySoundsEditingId === s.id ? (
+                                <div className="px-3 py-2.5">
+                                  <input
+                                    type="text"
+                                    value={mySoundsEditingName}
+                                    onChange={(e) => setMySoundsEditingName(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        e.preventDefault();
+                                        void handleMySoundsSaveRename();
+                                      }
+                                    }}
+                                    className="w-full rounded-lg border border-zinc-600 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none ring-zinc-500 focus:ring-1"
+                                    autoFocus
+                                    disabled={mySoundsEditBusy}
+                                    aria-label="Track name"
+                                  />
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    <button
+                                      type="button"
+                                      disabled={
+                                        mySoundsEditBusy || !mySoundsEditingName.trim()
+                                      }
+                                      onClick={() => void handleMySoundsSaveRename()}
+                                      className="rounded-lg border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-40"
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={mySoundsEditBusy}
+                                      onClick={cancelMySoundsRowEdit}
+                                      className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.05] hover:text-zinc-200 disabled:opacity-40"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex items-center gap-2 px-3 py-2.5">
+                                    <button
+                                      type="button"
+                                      title={s.name}
+                                      onClick={() => {
+                                        setPendingSoundtrackId(s.id);
+                                        if (!s.media_url.trim()) {
+                                          stopMediaPreview();
+                                          setSoundscapePulseId(null);
+                                          return;
+                                        }
+                                        setSoundscapePulseId(s.id);
+                                        startMediaPreview(s.media_url, true);
+                                      }}
+                                      className={`min-w-0 flex-1 truncate text-left text-sm transition active:opacity-90 ${
+                                        selected
+                                          ? "font-medium text-zinc-50"
+                                          : "text-zinc-500"
+                                      }`}
+                                    >
+                                      {s.name}
+                                    </button>
+                                    <div className="flex shrink-0 items-center gap-1.5">
+                                      {soundscapePulseId === s.id ? (
+                                        <span
+                                          className="size-1.5 shrink-0 rounded-full bg-zinc-400 preview-pulse-dot"
+                                          aria-hidden
+                                        />
+                                      ) : null}
+                                      <button
+                                        type="button"
+                                        aria-label={`Edit ${s.name}`}
+                                        disabled={mySoundsEditBusy}
+                                        onClick={() => {
+                                          setMySoundsEditError(null);
+                                          setMySoundsDeleteConfirmId(null);
+                                          setMySoundsEditingId(null);
+                                          setMySoundsEditingName("");
+                                          setMySoundsEditMenuId((cur) =>
+                                            cur === s.id ? null : s.id,
+                                          );
+                                        }}
+                                        className="shrink-0 rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/[0.06] hover:text-zinc-200 disabled:opacity-40"
+                                      >
+                                        <EditGlyph className="size-5" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                  {mySoundsEditMenuId === s.id && (
+                                    <div className="flex flex-wrap gap-2 border-t border-zinc-800/50 px-3 pb-2.5 pt-2">
+                                      <button
+                                        type="button"
+                                        disabled={mySoundsEditBusy}
+                                        onClick={() => {
+                                          setMySoundsEditMenuId(null);
+                                          setMySoundsEditingId(s.id);
+                                          setMySoundsEditingName(s.name);
+                                        }}
+                                        className="rounded-lg border border-zinc-600 bg-zinc-800/90 px-3 py-1.5 text-xs font-semibold text-zinc-100 transition hover:bg-zinc-700 disabled:opacity-40"
+                                      >
+                                        Rename
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={mySoundsEditBusy}
+                                        onClick={() => {
+                                          setMySoundsEditMenuId(null);
+                                          setMySoundsDeleteConfirmId(s.id);
+                                        }}
+                                        className="rounded-lg px-3 py-1.5 text-xs font-semibold text-red-400/90 transition hover:bg-red-500/10 disabled:opacity-40"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  )}
+                                  {mySoundsDeleteConfirmId === s.id && (
+                                    <div className="flex flex-col gap-2 border-t border-zinc-800/50 px-3 pb-2.5 pt-2">
+                                      <p className="text-xs leading-snug text-zinc-400">
+                                        Remove &ldquo;{s.name}&rdquo;? This cannot be undone.
+                                      </p>
+                                      <div className="flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          disabled={mySoundsEditBusy}
+                                          onClick={() =>
+                                            void handleMySoundsConfirmDelete(s.id)
+                                          }
+                                          className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/20 disabled:opacity-40"
+                                        >
+                                          Remove track
+                                        </button>
+                                        <button
+                                          type="button"
+                                          disabled={mySoundsEditBusy}
+                                          onClick={() => setMySoundsDeleteConfirmId(null)}
+                                          className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-400 transition hover:bg-white/[0.05] hover:text-zinc-200 disabled:opacity-40"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              )}
                             </li>
                           );
                         })}
                     </ul>
-                  </div>
-                  {soundscapeListTab === "my_sounds" && (
                     <div className="shrink-0 border-t border-zinc-800/70 pt-3">
                       <button
                         type="button"
                         onClick={() => {
-                          setDroppedAudioDraftFiles([]);
+                          setMySoundsEditMenuId(null);
+                          setMySoundsEditingId(null);
+                          setMySoundsEditingName("");
+                          setMySoundsDeleteConfirmId(null);
+                          setMySoundsEditError(null);
+                          setAddSoundRows([]);
+                          setAddSoundUploadError(null);
                           setAddSoundDropActive(false);
                           setMySoundsUiStep("add_files");
                         }}
                         className="w-full rounded-xl border border-zinc-600 bg-zinc-800/90 py-3 text-center text-sm font-semibold text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800 active:scale-[0.99]"
                       >
-                        Add a sound
+                        Add sounds
                       </button>
                     </div>
-                  )}
+                  </div>
                 </div>
                 <ModalSaveFooter onSave={saveSoundtrackModal} />
               </>
