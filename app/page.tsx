@@ -585,13 +585,13 @@ export default function Home() {
       ) : (
         <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-24 px-5 py-10">
           <section
-            className="flex shrink-0 items-center justify-center gap-1.5"
+            className="flex shrink-0 items-center justify-center gap-2"
             aria-label="Meditation days"
           >
             {Array.from({ length: meditationDaysCount }).map((_, i) => (
               <span
                 key={i}
-                className="h-1.5 w-1.5 rounded-full bg-emerald-500"
+                className="h-2 w-2 rounded-full bg-emerald-500"
               />
             ))}
           </section>
