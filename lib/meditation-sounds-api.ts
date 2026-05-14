@@ -2,8 +2,8 @@ export const MEDITATION_SOUNDS_URL =
   "https://meditate-now-server-535943965628.us-central1.run.app/meditation-sounds";
 
 const _soundsServer = new URL(MEDITATION_SOUNDS_URL);
-export const DOWNLOAD_SOUND_URL = `${_soundsServer.origin}/download-sound`;
 export const UPLOAD_AUDIO_URL = `${_soundsServer.origin}/upload-audio`;
+export const DOWNLOAD_SOUND_URL = `${_soundsServer.origin}/download-sound`;
 
 export async function patchCustomSoundscapeName(id: string, name: string): Promise<void> {
   const res = await fetch(
@@ -63,8 +63,10 @@ export type UploadAudioErrorItem = {
  */
 export async function postUploadAudioFiles(
   files: File[],
+  firebaseUid: string,
 ): Promise<{ created: UploadAudioCreatedItem[]; errors: UploadAudioErrorItem[] }> {
   const fd = new FormData();
+  fd.append("firebase_uid", firebaseUid);
   for (const f of files) {
     fd.append("files", f);
   }
@@ -126,8 +128,14 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-export async function fetchMeditationSounds(): Promise<MeditationSoundsResponse> {
-  const res = await fetch(MEDITATION_SOUNDS_URL, { cache: "no-store" });
+export async function fetchMeditationSounds(
+  firebaseUid: string | null,
+): Promise<MeditationSoundsResponse> {
+  const url = new URL(MEDITATION_SOUNDS_URL);
+  if (firebaseUid) {
+    url.searchParams.set("firebase_uid", firebaseUid);
+  }
+  const res = await fetch(url.toString(), { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Failed to load meditation sounds (${res.status})`);
   }

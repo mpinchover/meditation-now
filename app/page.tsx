@@ -192,11 +192,11 @@ export default function Home() {
 
   const refreshSoundsQuiet = useCallback(async () => {
     try {
-      applySoundsResponse(await fetchMeditationSounds());
+      applySoundsResponse(await fetchMeditationSounds(authUser?.uid ?? null));
     } catch {
       /* keep existing catalog */
     }
-  }, [applySoundsResponse]);
+  }, [applySoundsResponse, authUser?.uid]);
 
   const scheduleRefreshSoundsQuiet = useCallback(() => {
     if (refreshSoundsQuietDebounceRef.current) {
@@ -257,17 +257,18 @@ export default function Home() {
     setSoundsLoading(true);
     setSoundsError(null);
     try {
-      applySoundsResponse(await fetchMeditationSounds());
+      applySoundsResponse(await fetchMeditationSounds(authUser?.uid ?? null));
     } catch (e) {
       setSoundsError(e instanceof Error ? e.message : "Could not load sounds.");
     } finally {
       setSoundsLoading(false);
     }
-  }, [applySoundsResponse]);
+  }, [authUser?.uid, applySoundsResponse]);
 
   useEffect(() => {
+    if (!authReady) return;
     void loadSounds();
-  }, [loadSounds]);
+  }, [authReady, loadSounds]);
 
   const stopMediaPreview = useCallback(() => {
     const a = previewAudioRef.current;
@@ -395,6 +396,12 @@ export default function Home() {
 
   const handleAddSoundFiles = useCallback(
     (fileList: FileList | File[]) => {
+      const uid = authUser?.uid;
+      if (!uid) {
+        setOpenModal("login");
+        return;
+      }
+
       const files = Array.from(fileList).filter(isUploadableSoundFile);
       if (files.length === 0) {
         setAddSoundUploadError("Only MP3 and WAV files are accepted.");
@@ -417,7 +424,7 @@ export default function Home() {
       for (const { id, file } of pairs) {
         void (async () => {
           try {
-            const { created, errors } = await postUploadAudioFiles([file]);
+            const { created, errors } = await postUploadAudioFiles([file], uid);
             scheduleRefreshSoundsQuiet();
             const rowErr = errors.find((e) => e.filename === file.name);
             const ok = created.length > 0;
@@ -449,7 +456,7 @@ export default function Home() {
         })();
       }
     },
-    [scheduleRefreshSoundsQuiet],
+    [authUser?.uid, scheduleRefreshSoundsQuiet],
   );
 
   function openBellsModal() {
@@ -701,6 +708,11 @@ export default function Home() {
               onCancelDelete={() => setMySoundsDeleteConfirmId(null)}
               onConfirmDelete={handleMySoundsConfirmDelete}
               onOpenAddFiles={() => {
+                if (!authReady) return;
+                if (!authUser) {
+                  setOpenModal("login");
+                  return;
+                }
                 setMySoundsEditMenuId(null);
                 setMySoundsEditingId(null);
                 setMySoundsEditingName("");
