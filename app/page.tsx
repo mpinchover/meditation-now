@@ -8,7 +8,6 @@ import {
   postUploadAudioFiles,
   type MeditationSoundsResponse,
 } from "@/lib/meditation-sounds-api";
-import { prefetchMeditationSounds } from "@/lib/prefetch-meditation-audio";
 import type {
   BellCategory,
   CatalogBellSound,
@@ -186,8 +185,6 @@ export default function Home() {
     setStartingBellId((cur) =>
       cur !== null && !data.bells.some((b) => b.id === cur) ? null : cur,
     );
-
-    prefetchMeditationSounds(data);
   }, []);
 
   const refreshSoundsQuiet = useCallback(async () => {
