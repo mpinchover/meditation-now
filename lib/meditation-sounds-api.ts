@@ -4,7 +4,6 @@ export const MEDITATION_SOUNDS_URL =
 const _soundsServer = new URL(MEDITATION_SOUNDS_URL);
 export const UPLOAD_AUDIO_URL = `${_soundsServer.origin}/upload-audio`;
 export const UPLOAD_AUDIO_PREPARE_URL = `${_soundsServer.origin}/upload-audio/prepare`;
-export const UPLOAD_AUDIO_FINALIZE_URL = `${_soundsServer.origin}/upload-audio/finalize`;
 export const DOWNLOAD_SOUND_URL = `${_soundsServer.origin}/download-sound`;
 
 export async function patchCustomSoundscapeName(id: string, name: string): Promise<void> {
@@ -64,13 +63,11 @@ type PrepareResponse = {
   doc_id: string;
   upload_url: string;
   content_type: string;
-  finalize_token: string;
   ext: string;
 };
 
 /**
- * Signed PUT to GCS (prepare → PUT → finalize) so large files bypass Cloud Run's HTTP/1 body limit.
- * Server accepts MP3 and WAV only; trims to 10 minutes on finalize.
+ * Prepare → signed PUT to GCS → POST /upload-audio (JSON) to register Firestore (no truncation).
  */
 export async function postUploadAudioFiles(
   files: File[],
@@ -113,13 +110,11 @@ export async function postUploadAudioFiles(
       const doc_id = prepRec.doc_id;
       const upload_url = prepRec.upload_url;
       const content_type = prepRec.content_type;
-      const finalize_token = prepRec.finalize_token;
       const ext = prepRec.ext;
       if (
         typeof doc_id !== "string" ||
         typeof upload_url !== "string" ||
         typeof content_type !== "string" ||
-        typeof finalize_token !== "string" ||
         typeof ext !== "string"
       ) {
         errors.push({ filename: f.name, error: "Invalid prepare response from server." });
@@ -129,7 +124,6 @@ export async function postUploadAudioFiles(
         doc_id,
         upload_url,
         content_type,
-        finalize_token,
         ext,
       };
 
@@ -146,50 +140,49 @@ export async function postUploadAudioFiles(
         continue;
       }
 
-      const finRes = await fetch(UPLOAD_AUDIO_FINALIZE_URL, {
+      const regRes = await fetch(UPLOAD_AUDIO_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           firebase_uid: firebaseUid,
           doc_id: prep.doc_id,
-          finalize_token: prep.finalize_token,
           ext: prep.ext,
           filename: f.name,
         }),
       });
-      let finBody: unknown = {};
+      let regBody: unknown = {};
       try {
-        finBody = await finRes.json();
+        regBody = await regRes.json();
       } catch {
         /* non-JSON */
       }
-      const finRec =
-        typeof finBody === "object" && finBody !== null ? (finBody as Record<string, unknown>) : {};
+      const regRec =
+        typeof regBody === "object" && regBody !== null ? (regBody as Record<string, unknown>) : {};
 
-      const createdRaw = finRec.created;
-      const errorsRaw = finRec.errors;
-      const finCreated = Array.isArray(createdRaw)
+      const createdRaw = regRec.created;
+      const errorsRaw = regRec.errors;
+      const regCreated = Array.isArray(createdRaw)
         ? (createdRaw as UploadAudioCreatedItem[])
         : [];
-      const finErrors = Array.isArray(errorsRaw) ? (errorsRaw as UploadAudioErrorItem[]) : [];
+      const regErrors = Array.isArray(errorsRaw) ? (errorsRaw as UploadAudioErrorItem[]) : [];
 
-      if (!finRes.ok) {
+      if (!regRes.ok) {
         const row =
-          finErrors.find((e) => e.filename === f.name) ??
-          finErrors[0] ??
-          (typeof finRec.error === "string"
-            ? { filename: f.name, error: finRec.error }
+          regErrors.find((e) => e.filename === f.name) ??
+          regErrors[0] ??
+          (typeof regRec.error === "string"
+            ? { filename: f.name, error: regRec.error }
             : null);
         errors.push(
-          row ?? { filename: f.name, error: `Finalize failed (${finRes.status})` },
+          row ?? { filename: f.name, error: `Register failed (${regRes.status})` },
         );
         continue;
       }
 
-      if (finCreated.length > 0) {
-        created.push(...finCreated);
+      if (regCreated.length > 0) {
+        created.push(...regCreated);
       }
-      errors.push(...finErrors);
+      errors.push(...regErrors);
     } catch (e) {
       errors.push({
         filename: f.name,
