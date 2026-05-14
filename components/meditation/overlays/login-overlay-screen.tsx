@@ -132,7 +132,7 @@ export function LoginOverlayScreen(props: { onAuthSuccess?: () => void }) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={busy}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1 disabled:opacity-50"
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1 disabled:opacity-50"
             placeholder="you@example.com"
           />
         </div>
@@ -150,7 +150,7 @@ export function LoginOverlayScreen(props: { onAuthSuccess?: () => void }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={busy}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1 disabled:opacity-50"
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1 disabled:opacity-50"
             placeholder="••••••••"
           />
         </div>
@@ -169,7 +169,7 @@ export function LoginOverlayScreen(props: { onAuthSuccess?: () => void }) {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               disabled={busy}
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1 disabled:opacity-50"
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1 disabled:opacity-50"
               placeholder="••••••••"
             />
           </div>
