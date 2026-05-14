@@ -585,15 +585,23 @@ export default function Home() {
       ) : (
         <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-24 px-5 py-10">
           <section
-            className="flex shrink-0 items-center justify-center gap-2"
+            className="mx-auto flex w-32 shrink-0 items-center"
             aria-label="Meditation days"
           >
-            {Array.from({ length: meditationDaysCount }).map((_, i) => (
-              <span
-                key={i}
-                className="h-2 w-2 rounded-full bg-emerald-500"
-              />
-            ))}
+            {Array.from({ length: meditationDaysCount * 2 - 1 }, (_, i) =>
+              i % 2 === 0 ? (
+                <span
+                  key={i}
+                  className="h-2 w-2 shrink-0 rounded-full bg-emerald-500"
+                />
+              ) : (
+                <div
+                  key={i}
+                  className="h-0.5 min-w-0 flex-1 self-center rounded-full bg-emerald-600/75"
+                  aria-hidden
+                />
+              ),
+            )}
           </section>
 
           <div className="flex shrink-0 flex-col gap-6">
