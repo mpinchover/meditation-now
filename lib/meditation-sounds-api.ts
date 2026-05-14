@@ -3,6 +3,8 @@ export const MEDITATION_SOUNDS_URL =
 
 const _soundsServer = new URL(MEDITATION_SOUNDS_URL);
 export const UPLOAD_AUDIO_URL = `${_soundsServer.origin}/upload-audio`;
+export const UPLOAD_AUDIO_PREPARE_URL = `${_soundsServer.origin}/upload-audio/prepare`;
+export const UPLOAD_AUDIO_FINALIZE_URL = `${_soundsServer.origin}/upload-audio/finalize`;
 export const DOWNLOAD_SOUND_URL = `${_soundsServer.origin}/download-sound`;
 
 export async function patchCustomSoundscapeName(id: string, name: string): Promise<void> {
@@ -58,39 +60,147 @@ export type UploadAudioErrorItem = {
   error: string;
 };
 
+type PrepareResponse = {
+  doc_id: string;
+  upload_url: string;
+  content_type: string;
+  finalize_token: string;
+  ext: string;
+};
+
 /**
- * POST multipart field `files` (one or more). Server accepts MP3 and WAV only.
+ * Signed PUT to GCS (prepare → PUT → finalize) so large files bypass Cloud Run's HTTP/1 body limit.
+ * Server accepts MP3 and WAV only; trims to 10 minutes on finalize.
  */
 export async function postUploadAudioFiles(
   files: File[],
   firebaseUid: string,
 ): Promise<{ created: UploadAudioCreatedItem[]; errors: UploadAudioErrorItem[] }> {
-  const fd = new FormData();
-  fd.append("firebase_uid", firebaseUid);
+  const created: UploadAudioCreatedItem[] = [];
+  const errors: UploadAudioErrorItem[] = [];
+
   for (const f of files) {
-    fd.append("files", f);
-  }
-  const res = await fetch(UPLOAD_AUDIO_URL, { method: "POST", body: fd });
-  let data: unknown = {};
-  try {
-    data = await res.json();
-  } catch {
-    /* non-JSON */
-  }
-  const rec = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+    try {
+      const prepRes = await fetch(UPLOAD_AUDIO_PREPARE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firebase_uid: firebaseUid,
+          filename: f.name,
+          content_type: f.type || undefined,
+        }),
+      });
+      let prepBody: unknown = {};
+      try {
+        prepBody = await prepRes.json();
+      } catch {
+        /* non-JSON */
+      }
+      const prepRec =
+        typeof prepBody === "object" && prepBody !== null
+          ? (prepBody as Record<string, unknown>)
+          : {};
 
-  if (!res.ok) {
-    const msg =
-      typeof rec.error === "string"
-        ? rec.error
-        : `Upload failed (${res.status})`;
-    throw new Error(msg);
+      if (!prepRes.ok) {
+        const msg =
+          typeof prepRec.error === "string"
+            ? prepRec.error
+            : `Prepare upload failed (${prepRes.status})`;
+        errors.push({ filename: f.name, error: msg });
+        continue;
+      }
+
+      const doc_id = prepRec.doc_id;
+      const upload_url = prepRec.upload_url;
+      const content_type = prepRec.content_type;
+      const finalize_token = prepRec.finalize_token;
+      const ext = prepRec.ext;
+      if (
+        typeof doc_id !== "string" ||
+        typeof upload_url !== "string" ||
+        typeof content_type !== "string" ||
+        typeof finalize_token !== "string" ||
+        typeof ext !== "string"
+      ) {
+        errors.push({ filename: f.name, error: "Invalid prepare response from server." });
+        continue;
+      }
+      const prep: PrepareResponse = {
+        doc_id,
+        upload_url,
+        content_type,
+        finalize_token,
+        ext,
+      };
+
+      const putRes = await fetch(prep.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": prep.content_type },
+        body: f,
+      });
+      if (!putRes.ok) {
+        errors.push({
+          filename: f.name,
+          error: `Storage upload failed (${putRes.status}). If this persists, ensure the GCS bucket allows CORS from this app's origin.`,
+        });
+        continue;
+      }
+
+      const finRes = await fetch(UPLOAD_AUDIO_FINALIZE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firebase_uid: firebaseUid,
+          doc_id: prep.doc_id,
+          finalize_token: prep.finalize_token,
+          ext: prep.ext,
+          filename: f.name,
+        }),
+      });
+      let finBody: unknown = {};
+      try {
+        finBody = await finRes.json();
+      } catch {
+        /* non-JSON */
+      }
+      const finRec =
+        typeof finBody === "object" && finBody !== null ? (finBody as Record<string, unknown>) : {};
+
+      const createdRaw = finRec.created;
+      const errorsRaw = finRec.errors;
+      const finCreated = Array.isArray(createdRaw)
+        ? (createdRaw as UploadAudioCreatedItem[])
+        : [];
+      const finErrors = Array.isArray(errorsRaw) ? (errorsRaw as UploadAudioErrorItem[]) : [];
+
+      if (!finRes.ok) {
+        const row =
+          finErrors.find((e) => e.filename === f.name) ??
+          finErrors[0] ??
+          (typeof finRec.error === "string"
+            ? { filename: f.name, error: finRec.error }
+            : null);
+        errors.push(
+          row ?? { filename: f.name, error: `Finalize failed (${finRes.status})` },
+        );
+        continue;
+      }
+
+      if (finCreated.length > 0) {
+        created.push(...finCreated);
+      }
+      errors.push(...finErrors);
+    } catch (e) {
+      errors.push({
+        filename: f.name,
+        error: e instanceof Error ? e.message : "Upload failed.",
+      });
+    }
   }
 
-  const createdRaw = rec.created;
-  const errorsRaw = rec.errors;
-  const created = Array.isArray(createdRaw) ? (createdRaw as UploadAudioCreatedItem[]) : [];
-  const errors = Array.isArray(errorsRaw) ? (errorsRaw as UploadAudioErrorItem[]) : [];
+  if (created.length === 0 && errors.length > 0) {
+    throw new Error(errors[0]?.error ?? "Upload failed");
+  }
 
   return { created, errors };
 }
