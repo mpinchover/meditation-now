@@ -18,6 +18,7 @@ import { BellsCategoryOverlayScreen } from "@/components/meditation/overlays/bel
 import { BellsMenuOverlayScreen } from "@/components/meditation/overlays/bells-menu-overlay-screen";
 import { DurationOverlayScreen } from "@/components/meditation/overlays/duration-overlay-screen";
 import { SoundscapeAddFilesOverlayScreen } from "@/components/meditation/overlays/soundscape-add-files-overlay-screen";
+import { AccountOverlayScreen } from "@/components/meditation/overlays/account-overlay-screen";
 import { LoginOverlayScreen } from "@/components/meditation/overlays/login-overlay-screen";
 import { SoundscapePickerOverlayScreen } from "@/components/meditation/overlays/soundscape-picker-overlay-screen";
 import { MenuGlyph } from "@/components/meditation/menu-glyph";
@@ -28,6 +29,7 @@ import { MeditationSession } from "@/components/meditation/meditation-session";
 import { ModalOverlayShell } from "@/components/meditation/modal-overlay-shell";
 import { SoundsBootstrapSpinner } from "@/components/meditation/sounds-bootstrap-spinner";
 import { isUploadableSoundFile } from "@/components/meditation/upload-helpers";
+import { useFirebaseAuthUser } from "@/lib/use-firebase-auth-user";
 import type {
   AddSoundUploadRow,
   BellsUiStep,
@@ -38,6 +40,7 @@ import type {
 
 export default function Home() {
   const [openModal, setOpenModal] = useState<ModalId>(null);
+  const { user: authUser, authReady } = useFirebaseAuthUser();
 
   const [hours, setHours] = useState(0);
   const [minutes, setMinutes] = useState(15);
@@ -506,6 +509,12 @@ export default function Home() {
     };
   }, [openModal]);
 
+  useEffect(() => {
+    if (openModal === "account" && authReady && !authUser) {
+      setOpenModal(null);
+    }
+  }, [openModal, authReady, authUser]);
+
   const hourOptions = Array.from({ length: 12 }, (_, i) => i);
   const minuteOptions = Array.from({ length: 60 }, (_, i) => i);
 
@@ -541,10 +550,15 @@ export default function Home() {
       </p>
       <button
         type="button"
-        onClick={() => setOpenModal("login")}
-        className="fixed right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900/90 text-zinc-400 shadow-lg shadow-black/30 transition hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:scale-[0.98]"
-        aria-label="Open menu"
+        onClick={() => {
+          if (!authReady) return;
+          setOpenModal(authUser ? "account" : "login");
+        }}
+        className="fixed right-4 top-4 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900/90 text-zinc-400 shadow-lg shadow-black/30 transition hover:border-zinc-600 hover:bg-zinc-800 hover:text-zinc-100 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40"
+        aria-label={authUser ? "Account" : "Log in"}
+        aria-busy={!authReady}
         aria-haspopup="dialog"
+        disabled={!authReady}
       >
         <MenuGlyph className="size-5" />
       </button>
@@ -616,11 +630,24 @@ export default function Home() {
 
       {openModal === "login" && (
         <ModalOverlayShell onDismiss={() => setOpenModal(null)}>
-          <LoginOverlayScreen />
+          <LoginOverlayScreen onAuthSuccess={() => setOpenModal(null)} />
         </ModalOverlayShell>
       )}
 
-      {openModal && openModal !== "login" && !soundsLoading && !soundsError && (
+      {openModal === "account" && authUser && (
+        <ModalOverlayShell onDismiss={() => setOpenModal(null)}>
+          <AccountOverlayScreen
+            email={authUser.email ?? "No email on file for this account."}
+            onLoggedOut={() => setOpenModal(null)}
+          />
+        </ModalOverlayShell>
+      )}
+
+      {openModal &&
+        openModal !== "login" &&
+        openModal !== "account" &&
+        !soundsLoading &&
+        !soundsError && (
         <ModalOverlayShell onDismiss={() => setOpenModal(null)}>
           {openModal === "duration" && (
             <DurationOverlayScreen

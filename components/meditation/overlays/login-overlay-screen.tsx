@@ -1,15 +1,50 @@
 "use client";
 
 import { useState } from "react";
+import {
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+} from "firebase/auth";
+import { getFirebaseAuth } from "@/lib/firebase-client";
 
 type AuthMode = "login" | "signup";
 
-export function LoginOverlayScreen() {
+function mapFirebaseAuthError(code: string): string {
+  switch (code) {
+    case "auth/email-already-in-use":
+      return "That email is already registered. Try logging in.";
+    case "auth/invalid-email":
+      return "Enter a valid email address.";
+    case "auth/weak-password":
+      return "Password is too weak. Use at least 6 characters.";
+    case "auth/user-disabled":
+      return "This account has been disabled.";
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+      return "Incorrect email or password.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Wait a moment and try again.";
+    case "auth/popup-closed-by-user":
+      return "Sign-in was cancelled.";
+    case "auth/popup-blocked":
+      return "Pop-up was blocked. Allow pop-ups for this site and try again.";
+    case "auth/account-exists-with-different-credential":
+      return "An account already exists with this email using a different sign-in method.";
+    default:
+      return "Something went wrong. Please try again.";
+  }
+}
+
+export function LoginOverlayScreen(props: { onAuthSuccess?: () => void }) {
   const [mode, setMode] = useState<AuthMode>("login");
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [formMessage, setFormMessage] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   function switchMode(next: AuthMode) {
     setMode(next);
@@ -17,11 +52,11 @@ export function LoginOverlayScreen() {
     if (next === "login") setConfirmPassword("");
   }
 
-  function handleUsernamePasswordSubmit(e: React.FormEvent) {
+  async function handleEmailPasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
     setFormMessage(null);
-    if (!username.trim() || !password) {
-      setFormMessage("Enter a username and password.");
+    if (!email.trim() || !password) {
+      setFormMessage("Enter your email and password.");
       return;
     }
     if (mode === "signup") {
@@ -33,18 +68,45 @@ export function LoginOverlayScreen() {
         setFormMessage("Use a password of at least 8 characters.");
         return;
       }
-      setFormMessage("Sign-up is not wired up yet — connect your API here.");
-      return;
     }
-    setFormMessage("Sign-in is not wired up yet — connect your API here.");
+
+    setBusy(true);
+    try {
+      const auth = getFirebaseAuth();
+      if (mode === "signup") {
+        await createUserWithEmailAndPassword(auth, email.trim(), password);
+      } else {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+      }
+      props.onAuthSuccess?.();
+    } catch (err: unknown) {
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? String((err as { code?: string }).code)
+          : "";
+      setFormMessage(mapFirebaseAuthError(code));
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function handleGoogleAuth() {
-    setFormMessage(
-      mode === "signup"
-        ? "Google sign-up is not wired up yet — add OAuth to enable this."
-        : "Google sign-in is not wired up yet — add OAuth to enable this.",
-    );
+  async function handleGoogleAuth() {
+    setFormMessage(null);
+    setBusy(true);
+    try {
+      const auth = getFirebaseAuth();
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      props.onAuthSuccess?.();
+    } catch (err: unknown) {
+      const code =
+        typeof err === "object" && err !== null && "code" in err
+          ? String((err as { code?: string }).code)
+          : "";
+      setFormMessage(mapFirebaseAuthError(code));
+    } finally {
+      setBusy(false);
+    }
   }
 
   const title = mode === "login" ? "Log in" : "Sign up";
@@ -55,22 +117,23 @@ export function LoginOverlayScreen() {
       <h2 className="mb-5 text-center text-lg font-semibold text-zinc-50">{title}</h2>
      
 
-      <form onSubmit={handleUsernamePasswordSubmit} className="flex flex-col gap-4">
+      <form onSubmit={(e) => void handleEmailPasswordSubmit(e)} className="flex flex-col gap-4">
         <div className="space-y-1.5">
           <label
-            htmlFor="auth-username"
+            htmlFor="auth-email"
             className="block text-xs font-medium uppercase tracking-wide text-zinc-500"
           >
-            Username
+            Email
           </label>
           <input
-            id="auth-username"
-            type="text"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1"
-            placeholder="your.name"
+            id="auth-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={busy}
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1 disabled:opacity-50"
+            placeholder="you@example.com"
           />
         </div>
         <div className="space-y-1.5">
@@ -86,7 +149,8 @@ export function LoginOverlayScreen() {
             autoComplete={mode === "signup" ? "new-password" : "current-password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1"
+            disabled={busy}
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1 disabled:opacity-50"
             placeholder="••••••••"
           />
         </div>
@@ -104,7 +168,8 @@ export function LoginOverlayScreen() {
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1"
+              disabled={busy}
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none ring-zinc-500 placeholder:text-zinc-600 focus:ring-1 disabled:opacity-50"
               placeholder="••••••••"
             />
           </div>
@@ -112,9 +177,16 @@ export function LoginOverlayScreen() {
 
         <button
           type="submit"
-          className="w-full rounded-xl border border-zinc-600 bg-zinc-800 py-3 text-center text-sm font-semibold text-zinc-50 transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99]"
+          disabled={busy}
+          className="w-full rounded-xl border border-zinc-600 bg-zinc-800 py-3 text-center text-sm font-semibold text-zinc-50 transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50"
         >
-          {mode === "login" ? "Log in" : "Create account"}
+          {busy
+            ? mode === "login"
+              ? "Signing in…"
+              : "Creating account…"
+            : mode === "login"
+              ? "Log in"
+              : "Create account"}
         </button>
       </form>
 
@@ -156,8 +228,9 @@ export function LoginOverlayScreen() {
 
       <button
         type="button"
-        onClick={handleGoogleAuth}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-600 bg-zinc-950 py-3 text-sm font-semibold text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800/80 active:scale-[0.99]"
+        disabled={busy}
+        onClick={() => void handleGoogleAuth()}
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-600 bg-zinc-950 py-3 text-sm font-semibold text-zinc-100 transition hover:border-zinc-500 hover:bg-zinc-800/80 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50"
       >
         <GoogleGlyph className="size-5 shrink-0" />
         {mode === "login" ? "Continue with Google" : "Sign up with Google"}
