@@ -146,22 +146,20 @@ export default function Home() {
 
     setSoundscapesCatalog(data.soundscapes.map(catalogFromApiSoundscape));
 
-    setSoundtrackId((cur) => {
-      if (cur === null) return null;
-      if (data.soundscapes.some((s) => s.id === cur)) return cur;
-      return null;
-    });
+    const firstSoundscapeId = data.soundscapes[0]?.id ?? null;
+    const isValidSoundscapeId = (id: string | null) =>
+      id !== null && data.soundscapes.some((s) => s.id === id);
+
+    setSoundtrackId((cur) => (isValidSoundscapeId(cur) ? cur : firstSoundscapeId));
 
     const firstBellId = data.bells[0]?.id ?? null;
-    setEndingBellId((cur) =>
-      cur === null || !data.bells.some((b) => b.id === cur) ? firstBellId : cur,
-    );
-    setIntervalBellId((cur) =>
-      cur === null || !data.bells.some((b) => b.id === cur) ? firstBellId : cur,
-    );
-    setStartingBellId((cur) =>
-      cur !== null && !data.bells.some((b) => b.id === cur) ? null : cur,
-    );
+    const lastBellId = data.bells.at(-1)?.id ?? null;
+    const isValidBellId = (id: string | null) =>
+      id !== null && data.bells.some((b) => b.id === id);
+
+    setStartingBellId((cur) => (isValidBellId(cur) ? cur : firstBellId));
+    setEndingBellId((cur) => (isValidBellId(cur) ? cur : lastBellId));
+    setIntervalBellId((cur) => (isValidBellId(cur) ? cur : lastBellId));
   }, []);
 
   const loadSounds = useCallback(async () => {
