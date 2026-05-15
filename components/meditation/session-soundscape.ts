@@ -22,8 +22,25 @@ export function applySoundscapeLoopFade(audio: HTMLAudioElement) {
   }
 }
 
+const activeBells = new Set<HTMLAudioElement>();
+
+export function stopAllBells() {
+  for (const a of activeBells) {
+    a.pause();
+    a.removeAttribute("src");
+    a.load();
+  }
+  activeBells.clear();
+}
+
 export function playBellOnce(url: string) {
   const a = new Audio(url);
+  const untrack = () => {
+    activeBells.delete(a);
+  };
+  activeBells.add(a);
+  a.addEventListener("ended", untrack, { once: true });
+  a.addEventListener("error", untrack, { once: true });
   a.volume = 0.9;
-  void a.play().catch(() => {});
+  void a.play().catch(untrack);
 }

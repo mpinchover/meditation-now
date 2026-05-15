@@ -9,6 +9,7 @@ import {
   SOUNDSCAPE_BASE_VOLUME,
   applySoundscapeLoopFade,
   playBellOnce,
+  stopAllBells,
 } from "@/components/meditation/session-soundscape";
 
 export function MeditationSession(props: {
@@ -30,12 +31,14 @@ export function MeditationSession(props: {
   }, []);
   const [remaining, setRemaining] = useState(config.totalSeconds);
   const [paused, setPaused] = useState(false);
+  const [timeUp, setTimeUp] = useState(false);
   const endAtRef = useRef(0);
   const startedAtRef = useRef(0);
   const pauseWallStartedAtRef = useRef<number | null>(null);
   const frozenRemainingSecRef = useRef(config.totalSeconds);
   const lastIntervalTierRef = useRef(0);
   const completedRef = useRef(false);
+  const timeUpRef = useRef(false);
   const pausedRef = useRef(false);
   const soundscapeRef = useRef<HTMLAudioElement | null>(null);
   const onExitRef = useRef(props.onExit);
@@ -49,6 +52,8 @@ export function MeditationSession(props: {
     endAtRef.current = now + config.totalSeconds * 1000;
     lastIntervalTierRef.current = 0;
     completedRef.current = false;
+    timeUpRef.current = false;
+    setTimeUp(false);
 
     const startUrl = bellMediaUrl(config.startingBellId);
     if (startUrl) playBellOnce(startUrl);
@@ -104,6 +109,7 @@ export function MeditationSession(props: {
             a.load();
             soundscapeRef.current = null;
           }
+          stopAllBells();
         };
       }
     }
@@ -117,6 +123,7 @@ export function MeditationSession(props: {
         a.load();
         soundscapeRef.current = null;
       }
+      stopAllBells();
     };
   }, [config, bellMediaUrl]);
 
@@ -125,6 +132,7 @@ export function MeditationSession(props: {
 
     const tick = () => {
       if (completedRef.current) return;
+      if (timeUpRef.current) return;
       if (pausedRef.current) return;
 
       const now = Date.now();
@@ -144,14 +152,12 @@ export function MeditationSession(props: {
         }
       }
 
-      if (remainingSec <= 0 && !completedRef.current) {
-        completedRef.current = true;
-        pausedRef.current = false;
-        setPaused(false);
-        soundscapeRef.current?.pause();
+      if (remainingSec <= 0 && !timeUpRef.current) {
+        timeUpRef.current = true;
+        setTimeUp(true);
+        setRemaining(0);
         const endUrl = bellMediaUrl(config.endingBellId);
         if (endUrl) playBellOnce(endUrl);
-        onExitRef.current();
       }
     };
 
@@ -163,7 +169,7 @@ export function MeditationSession(props: {
   useEffect(() => {
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
-      if (pausedRef.current || completedRef.current) return;
+      if (pausedRef.current || timeUpRef.current || completedRef.current) return;
       props.onPlaybackScreenWake?.(true);
     };
     document.addEventListener("visibilitychange", onVisibility);
@@ -171,7 +177,7 @@ export function MeditationSession(props: {
   }, [props.onPlaybackScreenWake]);
 
   function togglePause() {
-    if (completedRef.current) return;
+    if (completedRef.current || timeUpRef.current) return;
 
     if (!pausedRef.current) {
       const rem = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
@@ -181,6 +187,7 @@ export function MeditationSession(props: {
       setPaused(true);
       pauseWallStartedAtRef.current = Date.now();
       soundscapeRef.current?.pause();
+      stopAllBells();
       props.onPlaybackScreenWake?.(false);
       return;
     }
@@ -203,6 +210,7 @@ export function MeditationSession(props: {
     completedRef.current = true;
     pausedRef.current = true;
     soundscapeRef.current?.pause();
+    stopAllBells();
     props.onPlaybackScreenWake?.(false);
     onFinishPressedRef.current?.(config.startedAtEpochMs);
     onExitRef.current();
@@ -225,7 +233,9 @@ export function MeditationSession(props: {
           </p>
         </div>
 
-        {!paused ? (
+        {timeUp ? (
+          <div aria-hidden className="size-28 shrink-0" />
+        ) : !paused ? (
           <button
             type="button"
             onClick={togglePause}
@@ -249,9 +259,9 @@ export function MeditationSession(props: {
         <button
           type="button"
           onClick={finishSessionEarly}
-          aria-hidden={!paused}
-          tabIndex={paused ? 0 : -1}
-          className={`w-full shrink-0 self-stretch rounded-2xl border border-zinc-600 bg-zinc-800/80 px-6 py-3 text-center text-sm font-semibold text-zinc-100 shadow-lg shadow-black/20 backdrop-blur-sm transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99] ${paused ? "" : "pointer-events-none invisible"}`}
+          aria-hidden={!paused && !timeUp}
+          tabIndex={paused || timeUp ? 0 : -1}
+          className={`w-full shrink-0 self-stretch rounded-2xl border border-zinc-600 bg-zinc-800/80 px-6 py-3 text-center text-sm font-semibold text-zinc-100 shadow-lg shadow-black/20 backdrop-blur-sm transition hover:border-zinc-500 hover:bg-zinc-700 active:scale-[0.99] ${paused || timeUp ? "" : "pointer-events-none invisible"}`}
         >
           Finish
         </button>
