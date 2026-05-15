@@ -2,10 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  deleteCustomSoundscape,
   fetchMeditationSounds,
-  patchCustomSoundscapeName,
-  postUploadAudioFiles,
   type MeditationSoundsResponse,
 } from "@/lib/meditation-sounds-api";
 import type {
@@ -16,24 +13,20 @@ import type {
 import { BellsCategoryOverlayScreen } from "@/components/meditation/overlays/bells-category-overlay-screen";
 import { BellsMenuOverlayScreen } from "@/components/meditation/overlays/bells-menu-overlay-screen";
 import { DurationOverlayScreen } from "@/components/meditation/overlays/duration-overlay-screen";
-import { SoundscapeAddFilesOverlayScreen } from "@/components/meditation/overlays/soundscape-add-files-overlay-screen";
 import { AccountOverlayScreen } from "@/components/meditation/overlays/account-overlay-screen";
 import { LoginOverlayScreen } from "@/components/meditation/overlays/login-overlay-screen";
 import { SoundscapePickerOverlayScreen } from "@/components/meditation/overlays/soundscape-picker-overlay-screen";
 import { MenuGlyph } from "@/components/meditation/menu-glyph";
-import { catalogFromApiCustom } from "@/components/meditation/catalog";
+import { catalogFromApiSoundscape } from "@/components/meditation/catalog";
 import { FieldRow } from "@/components/meditation/field-row";
 import { formatDuration } from "@/components/meditation/format";
 import { MeditationSession } from "@/components/meditation/meditation-session";
 import { ModalOverlayShell } from "@/components/meditation/modal-overlay-shell";
 import { SoundsBootstrapSpinner } from "@/components/meditation/sounds-bootstrap-spinner";
-import { isUploadableSoundFile } from "@/components/meditation/upload-helpers";
 import { useFirebaseAuthUser } from "@/lib/use-firebase-auth-user";
 import type {
-  AddSoundUploadRow,
   BellsUiStep,
   ModalId,
-  MySoundsUiStep,
   SessionSnapshot,
 } from "@/components/meditation/types";
 
@@ -82,24 +75,7 @@ export default function Home() {
 
   /** Row id whose preview/dot was activated by user tap this session (not initial selection). */
   const [soundscapePulseId, setSoundscapePulseId] = useState<string | null>(null);
-  const [mySoundscapes, setMySoundscapes] = useState<CatalogSoundscape[]>([]);
-  const [mySoundsUiStep, setMySoundsUiStep] = useState<MySoundsUiStep>("main");
-  const [addSoundRows, setAddSoundRows] = useState<AddSoundUploadRow[]>([]);
-  const [addSoundUploadError, setAddSoundUploadError] = useState<string | null>(null);
-  const [addSoundDropActive, setAddSoundDropActive] = useState(false);
-  const [mySoundsEditMenuId, setMySoundsEditMenuId] = useState<string | null>(null);
-  const [mySoundsEditingId, setMySoundsEditingId] = useState<string | null>(null);
-  const [mySoundsEditingName, setMySoundsEditingName] = useState("");
-  const [mySoundsDeleteConfirmId, setMySoundsDeleteConfirmId] = useState<string | null>(
-    null,
-  );
-  const [mySoundsEditBusy, setMySoundsEditBusy] = useState(false);
-  const [mySoundsEditError, setMySoundsEditError] = useState<string | null>(null);
-  const addAudioFilesInputRef = useRef<HTMLInputElement>(null);
-  const addSoundDropZoneRef = useRef<HTMLDivElement>(null);
-  const refreshSoundsQuietDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const [soundscapesCatalog, setSoundscapesCatalog] = useState<CatalogSoundscape[]>([]);
   const [bellPulseId, setBellPulseId] = useState<string | null>(null);
 
   const [bellsUiStep, setBellsUiStep] = useState<BellsUiStep>("menu");
@@ -157,7 +133,7 @@ export default function Home() {
   const soundtrackTitle =
     soundtrackId === null
       ? "None"
-      : mySoundscapes.find((s) => s.id === soundtrackId)?.name ?? "None";
+      : soundscapesCatalog.find((s) => s.id === soundtrackId)?.name ?? "None";
 
   const startingBellSummary =
     startingBellId === null
@@ -167,11 +143,11 @@ export default function Home() {
   const applySoundsResponse = useCallback((data: MeditationSoundsResponse) => {
     setBellsCatalog(data.bells);
 
-    setMySoundscapes(data.custom_soundscapes.map(catalogFromApiCustom));
+    setSoundscapesCatalog(data.soundscapes.map(catalogFromApiSoundscape));
 
     setSoundtrackId((cur) => {
       if (cur === null) return null;
-      if (data.custom_soundscapes.some((cs) => cs.id === cur)) return cur;
+      if (data.soundscapes.some((s) => s.id === cur)) return cur;
       return null;
     });
 
@@ -186,69 +162,6 @@ export default function Home() {
       cur !== null && !data.bells.some((b) => b.id === cur) ? null : cur,
     );
   }, []);
-
-  const refreshSoundsQuiet = useCallback(async () => {
-    try {
-      applySoundsResponse(await fetchMeditationSounds(authUser?.uid ?? null));
-    } catch {
-      /* keep existing catalog */
-    }
-  }, [applySoundsResponse, authUser?.uid]);
-
-  const scheduleRefreshSoundsQuiet = useCallback(() => {
-    if (refreshSoundsQuietDebounceRef.current) {
-      clearTimeout(refreshSoundsQuietDebounceRef.current);
-    }
-    refreshSoundsQuietDebounceRef.current = setTimeout(() => {
-      refreshSoundsQuietDebounceRef.current = null;
-      void refreshSoundsQuiet();
-    }, 300);
-  }, [refreshSoundsQuiet]);
-
-  const flushRefreshSoundsQuiet = useCallback(() => {
-    if (refreshSoundsQuietDebounceRef.current) {
-      clearTimeout(refreshSoundsQuietDebounceRef.current);
-      refreshSoundsQuietDebounceRef.current = null;
-    }
-    void refreshSoundsQuiet();
-  }, [refreshSoundsQuiet]);
-
-  const finishAddSoundFilesStep = useCallback(() => {
-    flushRefreshSoundsQuiet();
-    setAddSoundRows([]);
-    setAddSoundUploadError(null);
-    setAddSoundDropActive(false);
-    setMySoundsUiStep("main");
-    setMySoundsEditMenuId(null);
-    setMySoundsEditingId(null);
-    setMySoundsEditingName("");
-    setMySoundsDeleteConfirmId(null);
-    setMySoundsEditError(null);
-  }, [flushRefreshSoundsQuiet]);
-
-  const cancelMySoundsRowEdit = useCallback(() => {
-    setMySoundsEditingId(null);
-    setMySoundsEditingName("");
-    setMySoundsEditError(null);
-  }, []);
-
-  const handleMySoundsSaveRename = useCallback(async () => {
-    const id = mySoundsEditingId;
-    const trimmed = mySoundsEditingName.trim();
-    if (!id || !trimmed) return;
-    setMySoundsEditBusy(true);
-    setMySoundsEditError(null);
-    try {
-      await patchCustomSoundscapeName(id, trimmed);
-      await refreshSoundsQuiet();
-      cancelMySoundsRowEdit();
-      setMySoundsEditMenuId(null);
-    } catch (e) {
-      setMySoundsEditError(e instanceof Error ? e.message : "Could not rename");
-    } finally {
-      setMySoundsEditBusy(false);
-    }
-  }, [mySoundsEditingId, mySoundsEditingName, refreshSoundsQuiet, cancelMySoundsRowEdit]);
 
   const loadSounds = useCallback(async () => {
     setSoundsLoading(true);
@@ -288,59 +201,15 @@ export default function Home() {
     [stopMediaPreview],
   );
 
-  const handleMySoundsConfirmDelete = useCallback(
-    async (id: string) => {
-      setMySoundsEditBusy(true);
-      setMySoundsEditError(null);
-      try {
-        await deleteCustomSoundscape(id);
-        await refreshSoundsQuiet();
-        if (soundscapePulseId === id) {
-          stopMediaPreview();
-          setSoundscapePulseId(null);
-        }
-        setPendingSoundtrackId((cur) => (cur === id ? null : cur));
-        setMySoundsDeleteConfirmId(null);
-        setMySoundsEditMenuId(null);
-        setMySoundsEditingId(null);
-        setMySoundsEditingName("");
-      } catch (e) {
-        setMySoundsEditError(e instanceof Error ? e.message : "Could not remove");
-      } finally {
-        setMySoundsEditBusy(false);
-      }
-    },
-    [refreshSoundsQuiet, soundscapePulseId, stopMediaPreview],
-  );
-
   useEffect(() => {
     return () => stopMediaPreview();
   }, [stopMediaPreview]);
-
-  useEffect(() => {
-    return () => {
-      if (refreshSoundsQuietDebounceRef.current) {
-        clearTimeout(refreshSoundsQuietDebounceRef.current);
-        refreshSoundsQuietDebounceRef.current = null;
-      }
-    };
-  }, []);
 
   useEffect(() => {
     if (!openModal) {
       stopMediaPreview();
       setSoundscapePulseId(null);
       setBellPulseId(null);
-      setMySoundsUiStep("main");
-      setAddSoundRows([]);
-      setAddSoundUploadError(null);
-      setAddSoundDropActive(false);
-      setMySoundsEditMenuId(null);
-      setMySoundsEditingId(null);
-      setMySoundsEditingName("");
-      setMySoundsDeleteConfirmId(null);
-      setMySoundsEditBusy(false);
-      setMySoundsEditError(null);
     }
   }, [openModal, stopMediaPreview]);
 
@@ -379,82 +248,8 @@ export default function Home() {
   function openSoundtrackModal() {
     setPendingSoundtrackId(soundtrackId);
     setSoundscapePulseId(null);
-    setMySoundsUiStep("main");
-    setAddSoundRows([]);
-    setAddSoundUploadError(null);
-    setAddSoundDropActive(false);
-    setMySoundsEditMenuId(null);
-    setMySoundsEditingId(null);
-    setMySoundsEditingName("");
-    setMySoundsDeleteConfirmId(null);
-    setMySoundsEditError(null);
     setOpenModal("soundtrack");
   }
-
-  const handleAddSoundFiles = useCallback(
-    (fileList: FileList | File[]) => {
-      const uid = authUser?.uid;
-      if (!uid) {
-        setOpenModal("login");
-        return;
-      }
-
-      const files = Array.from(fileList).filter(isUploadableSoundFile);
-      if (files.length === 0) {
-        setAddSoundUploadError("Only MP3 and WAV files are accepted.");
-        return;
-      }
-      setAddSoundUploadError(null);
-
-      const pairs = files.map((file) => ({ id: crypto.randomUUID(), file }));
-
-      setAddSoundRows((prev) => [
-        ...prev,
-        ...pairs.map(({ id, file }) => ({
-          id,
-          name: file.name,
-          uploading: true,
-          error: null as string | null,
-        })),
-      ]);
-
-      for (const { id, file } of pairs) {
-        void (async () => {
-          try {
-            const { created, errors } = await postUploadAudioFiles([file], uid);
-            scheduleRefreshSoundsQuiet();
-            const rowErr = errors.find((e) => e.filename === file.name);
-            const ok = created.length > 0;
-            setAddSoundRows((prev) =>
-              prev.map((r) =>
-                r.id !== id
-                  ? r
-                  : {
-                      ...r,
-                      uploading: false,
-                      name: created[0]?.name ?? r.name,
-                      error: rowErr?.error ?? (!ok ? "Upload failed" : null),
-                    },
-              ),
-            );
-          } catch (e) {
-            setAddSoundRows((prev) =>
-              prev.map((r) =>
-                r.id !== id
-                  ? r
-                  : {
-                      ...r,
-                      uploading: false,
-                      error: e instanceof Error ? e.message : "Upload failed.",
-                    },
-              ),
-            );
-          }
-        })();
-      }
-    },
-    [authUser?.uid, scheduleRefreshSoundsQuiet],
-  );
 
   function openBellsModal() {
     setBellsUiStep("menu");
@@ -496,15 +291,11 @@ export default function Home() {
         setBellsUiStep("menu");
         return;
       }
-      if (openModal === "soundtrack" && mySoundsUiStep === "add_files") {
-        finishAddSoundFilesStep();
-        return;
-      }
       setOpenModal(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openModal, bellsUiStep, mySoundsUiStep, finishAddSoundFilesStep]);
+  }, [openModal, bellsUiStep]);
 
   useEffect(() => {
     document.body.style.overflow = openModal ? "hidden" : "";
@@ -530,7 +321,7 @@ export default function Home() {
     const soundtrackMediaUrl =
       soundtrackId === null
         ? null
-        : mySoundscapes.find((s) => s.id === soundtrackId)?.media_url ?? null;
+        : soundscapesCatalog.find((s) => s.id === soundtrackId)?.media_url ?? null;
     setActiveSession({
       totalSeconds,
       soundtrackId,
@@ -655,71 +446,15 @@ export default function Home() {
             />
           )}
 
-          {openModal === "soundtrack" && mySoundsUiStep === "add_files" && (
-            <SoundscapeAddFilesOverlayScreen
-              addAudioFilesInputRef={addAudioFilesInputRef}
-              addSoundDropZoneRef={addSoundDropZoneRef}
-              addSoundDropActive={addSoundDropActive}
-              setAddSoundDropActive={setAddSoundDropActive}
-              addSoundUploadError={addSoundUploadError}
-              addSoundRows={addSoundRows}
-              onDone={finishAddSoundFilesStep}
-              onFilesSelected={handleAddSoundFiles}
-            />
-          )}
-
-          {openModal === "soundtrack" && mySoundsUiStep === "main" && (
+          {openModal === "soundtrack" && (
             <SoundscapePickerOverlayScreen
-              mySoundscapes={mySoundscapes}
+              soundscapes={soundscapesCatalog}
               pendingSoundtrackId={pendingSoundtrackId}
               soundscapePulseId={soundscapePulseId}
-              mySoundsEditError={mySoundsEditError}
-              mySoundsEditingId={mySoundsEditingId}
-              mySoundsEditingName={mySoundsEditingName}
-              mySoundsEditMenuId={mySoundsEditMenuId}
-              mySoundsDeleteConfirmId={mySoundsDeleteConfirmId}
-              mySoundsEditBusy={mySoundsEditBusy}
               onPendingSoundtrackChange={setPendingSoundtrackId}
               onStopPreview={stopMediaPreview}
               onStartPreview={startMediaPreview}
               onSoundscapePulseChange={setSoundscapePulseId}
-              onMySoundsEditingNameChange={setMySoundsEditingName}
-              onSaveRename={handleMySoundsSaveRename}
-              onCancelRowEdit={cancelMySoundsRowEdit}
-              onToggleEditMenu={(id) => {
-                setMySoundsEditError(null);
-                setMySoundsDeleteConfirmId(null);
-                setMySoundsEditingId(null);
-                setMySoundsEditingName("");
-                setMySoundsEditMenuId((cur) => (cur === id ? null : id));
-              }}
-              onStartRename={(s) => {
-                setMySoundsEditMenuId(null);
-                setMySoundsEditingId(s.id);
-                setMySoundsEditingName(s.name);
-              }}
-              onRequestDelete={(id) => {
-                setMySoundsEditMenuId(null);
-                setMySoundsDeleteConfirmId(id);
-              }}
-              onCancelDelete={() => setMySoundsDeleteConfirmId(null)}
-              onConfirmDelete={handleMySoundsConfirmDelete}
-              onOpenAddFiles={() => {
-                if (!authReady) return;
-                if (!authUser) {
-                  setOpenModal("login");
-                  return;
-                }
-                setMySoundsEditMenuId(null);
-                setMySoundsEditingId(null);
-                setMySoundsEditingName("");
-                setMySoundsDeleteConfirmId(null);
-                setMySoundsEditError(null);
-                setAddSoundRows([]);
-                setAddSoundUploadError(null);
-                setAddSoundDropActive(false);
-                setMySoundsUiStep("add_files");
-              }}
               onSave={saveSoundtrackModal}
             />
           )}

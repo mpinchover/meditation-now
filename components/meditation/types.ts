@@ -10,15 +10,6 @@ export type ModalId =
 
 export type BellsUiStep = "menu" | BellCategory;
 
-export type MySoundsUiStep = "main" | "add_files";
-
-export type AddSoundUploadRow = {
-  id: string;
-  name: string;
-  uploading: boolean;
-  error: string | null;
-};
-
 export const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
   { id: "starting", label: "Starting" },
   { id: "ending", label: "Ending" },
@@ -28,7 +19,7 @@ export const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
 export type SessionSnapshot = {
   totalSeconds: number;
   soundtrackId: string | null;
-  /** Resolved at session start for custom soundscapes. */
+  /** Resolved at session start from the selected server soundscape. */
   soundtrackMediaUrl: string | null;
   startingBellId: string | null;
   endingBellId: string | null;
