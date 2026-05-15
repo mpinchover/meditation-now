@@ -17,6 +17,8 @@ export const BELL_TYPE_MENU: { id: BellCategory; label: string }[] = [
 ];
 
 export type SessionSnapshot = {
+  /** Epoch ms when the user tapped Begin (UTC instant). */
+  startedAtEpochMs: number;
   totalSeconds: number;
   soundtrackId: string | null;
   /** Resolved at session start from the selected server soundscape. */

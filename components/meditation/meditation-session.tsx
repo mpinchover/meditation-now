@@ -15,8 +15,8 @@ export function MeditationSession(props: {
   config: SessionSnapshot;
   bells: CatalogBellSound[];
   onExit: () => void;
-  /** Only when the user taps Finish (early end), not when the timer completes. */
-  onFinishPressed?: () => void;
+  /** Only when the user taps Finish (early end). Receives `config.startedAtEpochMs`. */
+  onFinishPressed?: (startedAtEpochMs: number) => void;
   /** Keeps the device screen on while `true` (Screen Wake Lock API). */
   onPlaybackScreenWake?: (shouldKeepScreenOn: boolean) => void;
 }) {
@@ -204,7 +204,7 @@ export function MeditationSession(props: {
     pausedRef.current = true;
     soundscapeRef.current?.pause();
     props.onPlaybackScreenWake?.(false);
-    onFinishPressedRef.current?.();
+    onFinishPressedRef.current?.(config.startedAtEpochMs);
     onExitRef.current();
   }
 

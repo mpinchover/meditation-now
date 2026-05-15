@@ -1,13 +1,11 @@
-import { getFirebaseAuth } from "@/lib/firebase-client";
+import type { User } from "firebase/auth";
 import { SESSIONS_POST_URL } from "@/lib/meditation-sounds-api";
 
-/** Persists a finish event when the user taps Finish while signed in (server writes to Firestore). */
+/** Persists a finish event when the user taps Finish (server writes to Firestore). */
 export async function recordSessionFinishIfAuthenticated(
+  user: User,
   startedAtMs: number,
 ): Promise<void> {
-  const user = getFirebaseAuth().currentUser;
-  if (!user) return;
-
   const idToken = await user.getIdToken();
   const finishedAtMs = Date.now();
   const res = await fetch(SESSIONS_POST_URL, {
