@@ -23,6 +23,7 @@ import { formatDuration } from "@/components/meditation/format";
 import { MeditationSession } from "@/components/meditation/meditation-session";
 import { ModalOverlayShell } from "@/components/meditation/modal-overlay-shell";
 import { SoundsBootstrapSpinner } from "@/components/meditation/sounds-bootstrap-spinner";
+import { recordSessionFinishIfAuthenticated } from "@/lib/record-session-finish";
 import { useFirebaseAuthUser } from "@/lib/use-firebase-auth-user";
 import type {
   BellsUiStep,
@@ -82,6 +83,8 @@ export default function Home() {
 
   const [activeSession, setActiveSession] = useState<SessionSnapshot | null>(null);
   const sessionWakeLockRef = useRef<WakeLockSentinel | null>(null);
+  /** UTC instant (epoch ms) when the user tapped Begin; used when recording Finish to Firestore. */
+  const sessionStartedAtMsRef = useRef<number | null>(null);
 
   const releaseSessionWakeLock = useCallback(async () => {
     const lock = sessionWakeLockRef.current;
@@ -317,6 +320,7 @@ export default function Home() {
     stopMediaPreview();
     setOpenModal(null);
     await acquireSessionWakeLock();
+    sessionStartedAtMsRef.current = Date.now();
     const totalSeconds = hours * 3600 + minutes * 60;
     const soundtrackMediaUrl =
       soundtrackId === null
@@ -335,8 +339,17 @@ export default function Home() {
 
   function endSessionFromFinish() {
     void releaseSessionWakeLock();
+    sessionStartedAtMsRef.current = null;
     setActiveSession(null);
   }
+
+  const onFinishPressed = useCallback(() => {
+    const startedAtMs = sessionStartedAtMsRef.current;
+    if (startedAtMs === null) return;
+    void recordSessionFinishIfAuthenticated(startedAtMs).catch((err) => {
+      console.error("recordSessionFinishIfAuthenticated", err);
+    });
+  }, []);
 
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-950 text-zinc-100">
@@ -362,6 +375,7 @@ export default function Home() {
           config={activeSession}
           bells={bellsCatalog}
           onExit={endSessionFromFinish}
+          onFinishPressed={onFinishPressed}
           onPlaybackScreenWake={onPlaybackScreenWake}
         />
       ) : soundsLoading ? (

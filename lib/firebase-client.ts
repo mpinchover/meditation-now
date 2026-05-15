@@ -21,10 +21,13 @@ const firebaseConfig = {
     "1:535943965628:web:b33a3d88c5dccd5fb8d9b9",
 };
 
-export function getFirebaseAuth(): Auth {
+function getFirebaseApp() {
   if (typeof window === "undefined") {
-    throw new Error("Firebase Auth is only available in the browser.");
+    throw new Error("Firebase is only available in the browser.");
   }
-  const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-  return getAuth(app);
+  return getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+}
+
+export function getFirebaseAuth(): Auth {
+  return getAuth(getFirebaseApp());
 }

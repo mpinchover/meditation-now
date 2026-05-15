@@ -2,6 +2,7 @@ export const MEDITATION_SOUNDS_URL =
   "https://meditate-now-server-535943965628.us-central1.run.app/meditation-sounds";
 
 const _soundsServer = new URL(MEDITATION_SOUNDS_URL);
+export const SESSIONS_POST_URL = `${_soundsServer.origin}/sessions`;
 export const UPLOAD_AUDIO_URL = `${_soundsServer.origin}/upload-audio`;
 export const UPLOAD_AUDIO_PREPARE_URL = `${_soundsServer.origin}/upload-audio/prepare`;
 export const DOWNLOAD_SOUND_URL = `${_soundsServer.origin}/download-sound`;
