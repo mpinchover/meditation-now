@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Meditate Now",
+  title: "Meditation before bed.",
   description: "Configure your meditation session",
 };
 
